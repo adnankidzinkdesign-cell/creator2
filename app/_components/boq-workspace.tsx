@@ -485,9 +485,7 @@ export function BoqWorkspace({
       'FLOOR',
       'ROOM',
       'ITEM NAME',
-      'KI CODE',
-      'CATEGORY',
-      'SUBCATEGORY',
+      'SKU ID',
       'COLOUR/FINISH',
       'DIMENSIONS',
       'Quantity',
@@ -513,12 +511,7 @@ export function BoqWorkspace({
           floorName,
           roomName,
           item.furniture_item_name ?? '',
-          firstRawString(item, ['KI_Code', 'KICode', 'KI Code']) ||
-            item.old_code ||
-            item.sku_id ||
-            '',
-          item.category ?? '',
-          item.subcategory ?? '',
+          item.sku_id ?? '',
           firstRawString(item, [
             'Colour_Finish',
             'Color_Finish',

@@ -672,11 +672,6 @@ export function CatalogTable({
                         <p className="truncate font-mono text-xs text-tremor-content">
                           {item.sku_id ?? '—'}
                         </p>
-                        {item.old_code ? (
-                          <p className="mt-0.5 truncate font-mono text-xs text-tremor-content-subtle">
-                            Old {item.old_code}
-                          </p>
-                        ) : null}
                         <h2 className="mt-1 line-clamp-2 text-base font-semibold text-tremor-content-strong">
                           {item.furniture_item_name ||
                             categoryDisplay(item.category, item.subcategory)}
@@ -790,6 +785,7 @@ export function CatalogTable({
                   <col className="w-[10%]" />
                   <col className="w-[14%]" />
                   <col className="w-[8%]" />
+                  {approvalScope === 'non-approved' ? <col className="w-[10%]" /> : null}
                   {showCreatorNames ? <col className="w-[12%]" /> : null}
                   {showBoqActions ? <col className="w-[6%]" /> : null}
                 </colgroup>
@@ -802,7 +798,7 @@ export function CatalogTable({
                       Furniture Item Name
                     </TableHeaderCell>
                     <TableHeaderCell className={TABLE_HEADER_CLASS}>
-                      Old Code
+                      SKU ID
                     </TableHeaderCell>
                     <TableHeaderCell className={TABLE_HEADER_CLASS}>
                       Description
@@ -822,6 +818,11 @@ export function CatalogTable({
                     <TableHeaderCell className={TABLE_HEADER_CLASS}>
                       Age Range
                     </TableHeaderCell>
+                    {approvalScope === 'non-approved' ? (
+                      <TableHeaderCell className={TABLE_HEADER_CLASS}>
+                        Approval
+                      </TableHeaderCell>
+                    ) : null}
                     {showCreatorNames ? (
                       <TableHeaderCell className={TABLE_HEADER_CLASS}>
                         Creator
@@ -902,7 +903,7 @@ export function CatalogTable({
                         <TableCell
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} font-mono text-xs`}
                         >
-                          {item.old_code ?? '—'}
+                          {item.sku_id ?? '—'}
                         </TableCell>
                         <TableCell
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
@@ -934,6 +935,27 @@ export function CatalogTable({
                         >
                           {item.age_range ?? '—'}
                         </TableCell>
+                        {approvalScope === 'non-approved' ? (
+                          <TableCell
+                            className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
+                          >
+                            {approvalValue(item) ? (
+                              <Badge
+                                color={
+                                  approvalValue(item)?.toLowerCase() === 'rejected'
+                                    ? 'red'
+                                    : approvalValue(item)?.toLowerCase() === 'pending'
+                                      ? 'yellow'
+                                      : 'slate'
+                                }
+                              >
+                                {approvalValue(item)}
+                              </Badge>
+                            ) : (
+                              <span className="text-tremor-content-subtle">—</span>
+                            )}
+                          </TableCell>
+                        ) : null}
                         {showCreatorNames ? (
                           <TableCell
                             className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} ${showBoqActions ? '' : 'rounded-r-[22px]'}`}
