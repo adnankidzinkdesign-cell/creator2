@@ -1,0 +1,42 @@
+{
+  "name": "kidzink-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test:supabase": "NODE_OPTIONS='--conditions=react-server' tsx scripts/test-supabase.ts",
+    "test:zoho-auth": "NODE_OPTIONS='--conditions=react-server' tsx scripts/test-zoho-auth.ts",
+    "test:zoho-fetch": "NODE_OPTIONS='--conditions=react-server' tsx scripts/test-zoho-fetch.ts",
+    "test:zoho-pagination": "NODE_OPTIONS='--conditions=react-server' tsx scripts/test-zoho-pagination.ts",
+    "sync:crm-deals": "NODE_OPTIONS='--conditions=react-server' tsx scripts/sync-crm-deals.ts",
+    "sync:furniture-images": "NODE_OPTIONS='--conditions=react-server' tsx scripts/sync-furniture-images.ts",
+    "test:parse": "tsx scripts/test-parse.ts"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.10.2",
+    "@supabase/supabase-js": "^2.105.3",
+    "@tremor/react": "^3.18.7",
+    "date-fns": "^4.1.0",
+    "next": "16.2.5",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "recharts": "^3.8.1",
+    "server-only": "^0.0.1",
+    "xlsx": "^0.18.5",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.5",
+    "tailwindcss": "^4",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}
