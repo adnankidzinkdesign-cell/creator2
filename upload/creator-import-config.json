@@ -1,0 +1,243 @@
+{
+  "formLinkName": "Furniture_Items_List",
+  "subformLinkName": "Finishes",
+  "defaultSheetName": "Upload_Data",
+  "defaultTemplateFile": "Zoho_Creator_Upload_Template.xlsx",
+  "defaultMappingFile": "Zoho_Lookup_Mapping.xlsx",
+  "maxRecordsPerRequest": 200,
+  "itemKeyColumns": ["Old_Code", "SK_ ID", "Variation_ID", "item_key"],
+  "resultFields": ["Furniture_Item_Name", "Furniture_Type", "Old_Code"],
+  "parentFields": {
+    "SK_ ID": "SKU_ID",
+    "Variation_ID": "Variation_ID",
+    "Old_Code": "Old_Code",
+    "Furniture_Type": "Furniture_Type",
+    "Furniture_Item_Name": "Furniture_Item_Name",
+    "Range": "Range",
+    "Category": "Category",
+    "SubCategory": "SubCategory",
+    "Description": "Description1",
+    "Length_mm": "Length_mm",
+    "Height_mm": "Height_mm",
+    "Depth_mm": "Depth_mm",
+    "Age_Range": "Age_Range",
+    "Suitable_Spaces": "Suitable_Spaces",
+    "Image": "Image",
+    "Country_of_Origin": "Country_of_Origin",
+    "Approval": "Approval",
+    "Status": "Status",
+    "Approval_Status": "Approval_Status",
+    "Approved_By": "Approved_By",
+    "Approved_Date": "Approved_Date",
+    "Rejection_Reason": "Rejection_Reason",
+    "Item_Material": "Item_Material",
+    "Number_of_Compartments": "Number_of_Compartments",
+    "Type_of_Shelves": "Type_of_Shelves",
+    "Number_of_Shelves": "Number_of_Shelves",
+    "Door_Type": "Door_Type",
+    "Door_Quantity": "Door_Quantity",
+    "Handles": "Handles",
+    "Lock": "Lock",
+    "Requestor_First_Name": "Requestor.first_name",
+    "Requestor_Last_Name": "Requestor.last_name",
+    "Entry_Source": "Entry_Source",
+    "Retail_Selling_Price_AED": "Retail_Selling_Price_AED",
+    "Retail_Selling_Price_SAR": "Retail_Selling_Price_SAR",
+    "Retail_Selling_Price_USD": "Retail_Selling_Price_USD"
+  },
+  "subformFields": {
+    "SubCategory_1": "SubCategory",
+    "Variation_ID_1": "Variation_ID",
+    "Match_Key": "Match_Key",
+    "Paint_Colour_Name_Code": "Paint_Colour_Name_Code",
+    "Entry_Source_1": "Entry_Source",
+    "Metal_Leg_Colour_Powder_Coating": "Metal_Leg_Colour_Powder_Coating",
+    "Handle_Material_Type": "Handle_Material_Type",
+    "Handle_Colour": "Handle_Colour",
+    "Lock_Type": "Lock_Type",
+    "Component_with_Material_Finish": "Component_with_Material_Finish",
+    "Finish_Type": "Finish_Type",
+    "Finish_Material_Colour": "Finish_Material_Colour",
+    "Corian_Durasein_Colour": "Corian_Durasein_Colour",
+    "PET_Colour": "PET_Colour",
+    "Edge_Banding_Colour": "Edge_Banding_Colour",
+    "Edging_Type": "Edging_Type",
+    "Top_Corner_Type": "Top_Corner_Type",
+    "Corner_Type": "Corner_Type",
+    "Component_to_Upholster": "Component_to_Upholster",
+    "Fabric_Material": "Fabric_Material",
+    "Fabric_Sub_Material": "Fabric_Sub_Material",
+    "Fabric_Colour_Name_Code": "Fabric_Colour_Name_Code",
+    "Gratnell_Colour1": "Gratnell_Colour"
+  },
+  "subformFallbackColumns": {
+    "SubCategory": ["SubCategory"]
+  },
+  "lookupFields": {
+    "Category": {
+      "area": "Parent",
+      "displayFields": ["Category", "Name", "Display_Name", "Category_ID"],
+      "reportCandidates": ["All_Categories", "Categories", "All_Category"],
+      "staticValues": {
+        "Storage": "4927772000000220026"
+      }
+    },
+    "SubCategory": {
+      "area": "Parent and Finishes",
+      "displayFields": ["SubCategory", "Sub_Category", "Name", "Display_Name", "SubCategory_ID"],
+      "reportCandidates": ["All_SubCategories", "SubCategories", "All_Sub_Categories"],
+      "staticValues": {
+        "Vanity Overhead": "4927772000000225618"
+      }
+    },
+    "Item_Material": {
+      "area": "Parent",
+      "displayFields": ["Item_Material", "Name", "Display_Name"],
+      "reportCandidates": ["All_Item_Materials", "Item_Materials", "All_Item_Material", "Item_Material"]
+    },
+    "Type_of_Shelves": {
+      "area": "Parent",
+      "displayFields": ["Type_of_Shelves", "Name", "Display_Name"],
+      "reportCandidates": ["All_Type_of_Shelves", "Type_of_Shelves", "All_Type_of_Shelf", "Type_of_Shelf"]
+    },
+    "Door_Type": {
+      "area": "Parent",
+      "displayFields": ["Door_Type", "Name", "Display_Name"],
+      "reportCandidates": ["All_Door_Types", "Door_Types", "All_Door_Type", "Door_Type"]
+    },
+    "Handles": {
+      "area": "Parent",
+      "displayFields": ["Handles", "Name", "Display_Name"],
+      "reportCandidates": ["All_Handles", "Handles", "All_Handle", "Handle"]
+    },
+    "Lock": {
+      "area": "Parent",
+      "displayFields": ["Lock", "Name", "Display_Name"],
+      "reportCandidates": ["All_Locks", "Locks", "All_Lock", "Lock"]
+    },
+    "Paint_Colour_Name_Code": {
+      "area": "Finishes",
+      "displayFields": ["Paint_Colour_Name_Code", "Name", "Display_Name"],
+      "reportCandidates": ["All_Paint_Colour_Name_Codes", "Paint_Colour_Name_Codes", "All_Paint_Colours", "Paint_Colours"]
+    },
+    "Metal_Leg_Colour_Powder_Coating": {
+      "area": "Finishes",
+      "displayFields": ["Metal_Leg_Colour_Powder_Coating", "Name", "Display_Name"],
+      "reportCandidates": ["All_Metal_Leg_Colour_Powder_Coatings", "Metal_Leg_Colour_Powder_Coatings"]
+    },
+    "Handle_Material_Type": {
+      "area": "Finishes",
+      "displayFields": ["Handle_Material_Type", "Name", "Display_Name"],
+      "reportCandidates": ["All_Handle_Material_Types", "Handle_Material_Types"]
+    },
+    "Handle_Colour": {
+      "area": "Finishes",
+      "displayFields": ["Handle_Colour", "Name", "Display_Name"],
+      "reportCandidates": ["All_Handle_Colours", "Handle_Colours"]
+    },
+    "Lock_Type": {
+      "area": "Finishes",
+      "displayFields": ["Lock_Type", "Name", "Display_Name"],
+      "reportCandidates": ["All_Lock_Types", "Lock_Types"]
+    },
+    "Component_with_Material_Finish": {
+      "area": "Finishes",
+      "displayFields": ["Component_with_Material_Finish", "Name", "Display_Name"],
+      "reportCandidates": ["All_Component_with_Material_Finishes", "Component_with_Material_Finishes"]
+    },
+    "Finish_Type": {
+      "area": "Finishes",
+      "displayFields": ["Finish_Type", "Name", "Display_Name"],
+      "reportCandidates": ["All_Finish_Types", "Finish_Types"]
+    },
+    "Finish_Material_Colour": {
+      "area": "Finishes",
+      "displayFields": ["Finish_Material_Colour", "Name", "Display_Name"],
+      "reportCandidates": ["All_Finish_Material_Colours", "Finish_Material_Colours"]
+    },
+    "Corian_Durasein_Colour": {
+      "area": "Finishes",
+      "displayFields": ["Corian_Durasein_Colour", "Name", "Display_Name"],
+      "reportCandidates": ["All_Corian_Durasein_Colours", "Corian_Durasein_Colours"]
+    },
+    "PET_Colour": {
+      "area": "Finishes",
+      "displayFields": ["PET_Colour", "Name", "Display_Name"],
+      "reportCandidates": ["All_PET_Colours", "PET_Colours"]
+    },
+    "Edge_Banding_Colour": {
+      "area": "Finishes",
+      "displayFields": ["Edge_Banding_Colour", "Name", "Display_Name"],
+      "reportCandidates": ["All_Edge_Banding_Colours", "Edge_Banding_Colours"]
+    },
+    "Edging_Type": {
+      "area": "Finishes",
+      "displayFields": ["Edging_Type", "Name", "Display_Name"],
+      "reportCandidates": ["All_Edging_Types", "Edging_Types"]
+    },
+    "Top_Corner_Type": {
+      "area": "Finishes",
+      "displayFields": ["Top_Corner_Type", "Name", "Display_Name"],
+      "reportCandidates": ["All_Top_Corner_Types", "Top_Corner_Types"]
+    },
+    "Corner_Type": {
+      "area": "Finishes",
+      "displayFields": ["Corner_Type", "Name", "Display_Name"],
+      "reportCandidates": ["All_Corner_Types", "Corner_Types"]
+    },
+    "Component_to_Upholster": {
+      "area": "Finishes",
+      "displayFields": ["Component_to_Upholster", "Name", "Display_Name"],
+      "reportCandidates": ["All_Component_to_Upholsters", "Component_to_Upholsters"]
+    },
+    "Fabric_Material": {
+      "area": "Finishes",
+      "displayFields": ["Fabric_Material", "Name", "Display_Name"],
+      "reportCandidates": ["All_Fabric_Materials", "Fabric_Materials"]
+    },
+    "Fabric_Sub_Material": {
+      "area": "Finishes",
+      "displayFields": ["Fabric_Sub_Material", "Name", "Display_Name"],
+      "reportCandidates": ["All_Fabric_Sub_Materials", "Fabric_Sub_Materials"]
+    },
+    "Fabric_Colour_Name_Code": {
+      "area": "Finishes",
+      "displayFields": ["Fabric_Colour_Name_Code", "Name", "Display_Name"],
+      "reportCandidates": ["All_Fabric_Colour_Name_Codes", "Fabric_Colour_Name_Codes"]
+    },
+    "Gratnell_Colour": {
+      "area": "Finishes",
+      "displayFields": ["Gratnell_Colour", "Name", "Display_Name"],
+      "reportCandidates": ["All_Gratnell_Colours", "Gratnell_Colours"]
+    }
+  },
+  "multiSelectFields": ["Suitable_Spaces"],
+  "booleanFields": [],
+  "skipParentFields": [],
+  "skipSubformFields": [],
+  "templateExample": {
+    "Old_Code": "ITEM-001",
+    "Furniture_Type": "Standard",
+    "Furniture_Item_Name": "Example Storage Unit",
+    "Category": "Storage",
+    "SubCategory": "Vanity Overhead",
+    "Length_mm": "450",
+    "Height_mm": "600",
+    "Depth_mm": "350",
+    "Age_Range": "All Ages",
+    "Suitable_Spaces": "General Classrooms",
+    "Country_of_Origin": "United Arab Emirates",
+    "Approval": "Approved",
+    "Number_of_Compartments": "1",
+    "Number_of_Shelves": "1",
+    "Door_Quantity": "0",
+    "Requestor_First_Name": "Reena",
+    "Requestor_Last_Name": "B",
+    "Entry_Source": "Import",
+    "Retail_Selling_Price_AED": "362",
+    "Retail_Selling_Price_SAR": "417",
+    "Retail_Selling_Price_USD": "98",
+    "SubCategory_1": "Vanity Overhead",
+    "Entry_Source_1": "Import"
+  }
+}
