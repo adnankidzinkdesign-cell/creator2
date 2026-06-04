@@ -29,6 +29,9 @@ export function RoomPlannerSidebar({
   onCloneRoom,
   onRenameRoom,
   onMoveRoom,
+  onRemoveRoom,
+  onRemoveFloor,
+  onRemoveItem,
 }: {
   floors: RoomPlannerFloor[]
   activeFloorId: string
@@ -48,6 +51,9 @@ export function RoomPlannerSidebar({
   onCloneRoom?: (roomId: string) => void
   onRenameRoom?: (roomId: string, newName: string) => void
   onMoveRoom?: (roomId: string, targetFloorId: string) => void
+  onRemoveRoom?: (roomId: string) => void
+  onRemoveFloor?: (floorId: string) => void
+  onRemoveItem?: (roomId: string, itemId: string) => void
 }) {
   const [floorName, setFloorName] = useState('')
   const [roomDrafts, setRoomDrafts] = useState<Record<string, string>>({})
@@ -181,6 +187,17 @@ export function RoomPlannerSidebar({
                       </div>
                     </div>
                   </button>
+                  {onRemoveFloor && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onRemoveFloor(floor.id) }}
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-red-50 hover:text-red-500"
+                      title="Remove floor"
+                      aria-label="Remove floor"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
 
                 {!isCollapsed && (
@@ -320,20 +337,30 @@ export function RoomPlannerSidebar({
                                 {count} item{count === 1 ? '' : 's'}
                               </div>
                             </div>
-                            {onCloneRoom && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  onCloneRoom(room.id)
-                                }}
-                                className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-tremor-content-strong transition-colors hover:bg-white/50"
-                                title="Clone room"
-                                aria-label="Clone room"
-                              >
-                                <span className="text-xs font-bold">⊕</span>
-                              </button>
-                            )}
+                            <div className="flex shrink-0 items-center gap-1">
+                              {onCloneRoom && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); onCloneRoom(room.id) }}
+                                  className="flex h-5 w-5 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-white/50 hover:text-tremor-content-strong"
+                                  title="Clone room"
+                                  aria-label="Clone room"
+                                >
+                                  <span className="text-xs font-bold">⊕</span>
+                                </button>
+                              )}
+                              {onRemoveRoom && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); onRemoveRoom(room.id) }}
+                                  className="flex h-5 w-5 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-red-50 hover:text-red-500"
+                                  title="Remove room"
+                                  aria-label="Remove room"
+                                >
+                                  <span className="text-xs">✕</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
 
                           <div className="mt-2 space-y-1 text-xs text-tremor-content">
@@ -344,7 +371,20 @@ export function RoomPlannerSidebar({
                             ) : (
                               <>
                                 {items.slice(0, 4).map((item) => (
-                                  <div key={item.id}>{item.label}</div>
+                                  <div key={item.id} className="flex items-center justify-between gap-1 group">
+                                    <span className="truncate">{item.label}</span>
+                                    {onRemoveItem && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); onRemoveItem(room.id, item.id) }}
+                                        className="invisible group-hover:visible shrink-0 text-tremor-content-subtle hover:text-red-500 transition-colors leading-none"
+                                        title="Remove item"
+                                        aria-label="Remove item from room"
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                  </div>
                                 ))}
                                 {items.length > 4 ? (
                                   <div className="text-tremor-content-subtle">

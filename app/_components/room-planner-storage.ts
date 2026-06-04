@@ -298,3 +298,57 @@ export function roomItemCount(state: RoomPlannerState, roomId: string): number {
 
   return 0
 }
+
+export function removeRoomFromState(
+  state: RoomPlannerState,
+  roomId: string,
+): RoomPlannerState {
+  const floors = state.floors.map((floor) => ({
+    ...floor,
+    rooms: floor.rooms.filter((room) => room.id !== roomId),
+  }))
+
+  const activeRoomStillExists = floors.some((floor) =>
+    floor.rooms.some((room) => room.id === state.activeRoomId),
+  )
+
+  return {
+    ...state,
+    floors,
+    activeRoomId: activeRoomStillExists ? state.activeRoomId : (floors[0]?.rooms[0]?.id ?? ''),
+  }
+}
+
+export function removeFloorFromState(
+  state: RoomPlannerState,
+  floorId: string,
+): RoomPlannerState {
+  const floors = state.floors.filter((floor) => floor.id !== floorId)
+
+  const activeFloorStillExists = floors.some((floor) => floor.id === state.activeFloorId)
+
+  return {
+    ...state,
+    floors,
+    activeFloorId: activeFloorStillExists ? state.activeFloorId : (floors[0]?.id ?? ''),
+    activeRoomId: activeFloorStillExists ? state.activeRoomId : (floors[0]?.rooms[0]?.id ?? ''),
+  }
+}
+
+export function removeItemFromRoomByRoomState(
+  state: RoomPlannerState,
+  roomId: string,
+  itemId: string,
+): RoomPlannerState {
+  return {
+    ...state,
+    floors: state.floors.map((floor) => ({
+      ...floor,
+      rooms: floor.rooms.map((room) =>
+        room.id === roomId
+          ? { ...room, itemIds: room.itemIds.filter((id) => id !== itemId) }
+          : room,
+      ),
+    })),
+  }
+}

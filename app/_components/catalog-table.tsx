@@ -41,6 +41,9 @@ import {
   cloneRoomToState,
   renameRoomInState,
   moveRoomToFloor,
+  removeRoomFromState,
+  removeFloorFromState,
+  removeItemFromRoomByRoomState,
   readRoomPlannerState,
   roomItemCount,
   writeRoomPlannerState,
@@ -394,6 +397,30 @@ export function CatalogTable({
     setRoomPlanner((current) => moveRoomToFloor(current, roomId, targetFloorId))
   }
 
+  function removeRoom(roomId: string) {
+    setRoomPlanner((current) => {
+      const next = removeRoomFromState(current, roomId)
+      writeRoomPlannerState(next)
+      return next
+    })
+  }
+
+  function removeFloor(floorId: string) {
+    setRoomPlanner((current) => {
+      const next = removeFloorFromState(current, floorId)
+      writeRoomPlannerState(next)
+      return next
+    })
+  }
+
+  function removeItemFromRoom(roomId: string, itemId: string) {
+    setRoomPlanner((current) => {
+      const next = removeItemFromRoomByRoomState(current, roomId, itemId)
+      writeRoomPlannerState(next)
+      return next
+    })
+  }
+
   function beginRoomItemDrag(itemId: string) {
     draggedItemRef.current = itemId
     window.sessionStorage.setItem(DRAGGED_ROOM_ITEM_STORAGE_KEY, itemId)
@@ -583,6 +610,9 @@ export function CatalogTable({
             onCloneRoom={cloneRoom}
             onRenameRoom={renameRoom}
             onMoveRoom={moveRoom}
+            onRemoveRoom={removeRoom}
+            onRemoveFloor={removeFloor}
+            onRemoveItem={removeItemFromRoom}
           />
         ) : null}
 
