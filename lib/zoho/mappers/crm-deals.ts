@@ -19,6 +19,8 @@ export const CRM_DEAL_FIELDS = [
   'Description',
   'Created_Time',
   'Modified_Time',
+  'School',
+  'School_Group',
 ] as const
 
 export type CrmDealRow = {
@@ -44,6 +46,8 @@ export type CrmDealRow = {
   description: string | null
   created_time: string | null
   modified_time: string | null
+  school_name: string | null
+  school_group: string | null
   raw: ZohoCrmRecord
 }
 
@@ -101,6 +105,8 @@ export function mapCrmDeal(record: ZohoCrmRecord): CrmDealRow {
     description: parseString(record.Description),
     created_time: parseDate(record.Created_Time)?.toISOString() ?? null,
     modified_time: parseDate(record.Modified_Time)?.toISOString() ?? null,
+    school_name: parseString(record.School),
+    school_group: parseString(record.School_Group),
     raw: record,
   }
 }

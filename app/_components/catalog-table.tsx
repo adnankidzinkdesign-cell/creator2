@@ -59,6 +59,16 @@ const ROW_BASE_CLASS = 'group transition-colors duration-200'
 const ROW_CELL_BASE_CLASS = 'border-y border-transparent px-4 py-4 align-top'
 const DRAGGED_ROOM_ITEM_STORAGE_KEY = 'kidzink-dragged-room-item'
 
+const CATEGORY_SUBCATEGORY_MAP: Record<string, string[]> = {
+  Accessories: ['Easels & Boards', 'Drying Racks', 'Cushions', 'Partition Panels', 'Modesty Panels', 'Trolley', 'Planter Boxes'],
+  'Display Units': ['Mobile Display Units', 'Shelved Book Display', 'Guitar Stand'],
+  Play: ['Role Play', 'Soft Play', 'Sensory Penzone'],
+  Pods: ['Meeting House Pods', 'Enclosed Seating', 'Play House Pods'],
+  Seating: ['Gym Bench', 'Pouffe', 'Bean Bag', 'Floor Seating', 'Sofa', 'Bench & Tiered Seating'],
+  Storage: ['Cabinet', 'Teaching Wall', 'Locker', 'Equipment Unit', 'Cabinet Topper', 'Vanity', 'Vanity Overhead', 'Shelving Unit', 'Drawer'],
+  Tables: ['Coffee Table', 'DT Table', 'Table Top', 'Standing Table', 'Meeting Table', 'Classroom Table', 'Office Table'],
+}
+
 function rawString(item: FurnitureItemRow, key: string): string | null {
   const value = item.raw[key]
   return typeof value === 'string' && value.trim() ? value : null
@@ -94,21 +104,105 @@ function imageUrls(item: FurnitureItemRow): string[] {
   )
 }
 
+function ResizableHeaderCell({
+  children,
+  columnKey,
+  width,
+  onResizeStart,
+}: {
+  children: React.ReactNode
+  columnKey: string
+  width: number
+  onResizeStart: (column: string, startX: number) => void
+}) {
+  const [showTooltip, setShowTooltip] = useState(false)
+
+  return (
+    <TableHeaderCell
+      className={`${TABLE_HEADER_CLASS} relative select-none`}
+      style={{
+        width: `${width}px`,
+        minWidth: `${width}px`,
+        position: 'relative',
+        borderRight: '1px solid #d4c5b9',
+        backgroundColor: '#e8ddd3',
+        color: '#5c4033',
+        fontWeight: '600',
+      }}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      <div className="flex items-center justify-between w-full h-full">
+        <span className="flex-1 truncate">{children}</span>
+
+        {showTooltip && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '-28px',
+              right: '0',
+              padding: '4px 8px',
+              backgroundColor: '#1f2937',
+              color: 'white',
+              fontSize: '12px',
+              borderRadius: '4px',
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              zIndex: 50,
+            }}
+          >
+            Drag to resize
+          </div>
+        )}
+
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault()
+            onResizeStart(columnKey, e.clientX)
+          }}
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+          style={{
+            position: 'absolute',
+            right: '-4px',
+            top: '0',
+            bottom: '0',
+            width: '8px',
+            cursor: 'col-resize',
+            userSelect: 'none',
+          }}
+          className="hover:bg-blue-400"
+        />
+      </div>
+    </TableHeaderCell>
+  )
+}
+
 function ImageCarousel({
   alt,
   urls,
+  failedUrls,
+  onImageError,
 }: {
   alt: string
   urls: string[]
+  failedUrls: Set<string>
+  onImageError: (url: string) => void
 }) {
   const [activeIndex, setActiveIndex] = useState(0)
   const safeActiveIndex = Math.min(activeIndex, Math.max(urls.length - 1, 0))
   const activeUrl = urls[safeActiveIndex]
+  const fallbackUrl = '/product-images/nope-not-here.png'
+  const displayUrl = failedUrls.has(activeUrl || '') ? fallbackUrl : activeUrl
 
   if (!activeUrl) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-tremor-content-subtle">
-        No image
+        <img
+          src={fallbackUrl}
+          alt={alt}
+          className="h-full w-full object-cover"
+          loading="lazy"
+        />
       </div>
     )
   }
@@ -116,10 +210,13 @@ function ImageCarousel({
   return (
     <div className="relative h-full">
       <img
-        src={activeUrl}
+        src={displayUrl}
         alt={alt}
         className="h-full w-full object-cover"
         loading="lazy"
+        onError={() => {
+          if (activeUrl) onImageError(activeUrl)
+        }}
       />
       {urls.length > 1 ? (
         <>
@@ -192,7 +289,22 @@ export function CatalogTable({
   const [hasLoadedRoomPlanner, setHasLoadedRoomPlanner] = useState(false)
   const [dragItemId, setDragItemId] = useState<string | null>(null)
   const [dragRoomId, setDragRoomId] = useState<string | null>(null)
+  const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set())
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+    image: 80,
+    name: 180,
+    sku: 110,
+    description: 200,
+    type: 120,
+    finishes: 160,
+    age: 110,
+    approval: 130,
+    creator: 140,
+    room: 100,
+    boq: 80,
+  })
   const draggedItemRef = useRef<string | null>(null)
+  const resizeRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null)
 
   const categories = useMemo(
     () => unique(items.map((item) => item.category)),
@@ -202,10 +314,16 @@ export function CatalogTable({
     () => unique(items.map((item) => item.furniture_type)),
     [items],
   )
-  const subcategories = useMemo(
-    () => unique(items.map((item) => item.subcategory)),
-    [items],
-  )
+  const subcategories = useMemo(() => {
+    if (category === ALL_VALUE) {
+      return unique(items.map((item) => item.subcategory))
+    }
+    const mappedSubs = CATEGORY_SUBCATEGORY_MAP[category] || []
+    const itemSubs = items
+      .filter((item) => item.category === category)
+      .map((item) => item.subcategory)
+    return unique([...mappedSubs, ...itemSubs])
+  }, [items, category])
   const ageRanges = useMemo(
     () => unique(items.map((item) => item.age_range)),
     [items],
@@ -443,6 +561,30 @@ export function CatalogTable({
     setSuitableSpace(ALL_VALUE)
   }
 
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizeRef.current) return
+      const diff = e.clientX - resizeRef.current.startX
+      const newWidth = Math.max(50, resizeRef.current.startWidth + diff)
+      setColumnWidths((prev) => ({
+        ...prev,
+        [resizeRef.current!.column]: newWidth,
+      }))
+    }
+
+    const handleMouseUp = () => {
+      resizeRef.current = null
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [columnWidths])
+
   return (
     <section className="space-y-6">
       <div className="dashboard-panel flex flex-wrap items-stretch gap-3 p-4">
@@ -460,7 +602,10 @@ export function CatalogTable({
           <Select
             className="w-full"
             value={category}
-            onValueChange={setCategory}
+            onValueChange={(newCategory) => {
+              setCategory(newCategory)
+              setSubcategory(ALL_VALUE)
+            }}
             aria-label="Filter by category"
           >
             <SelectItem value={ALL_VALUE}>All categories</SelectItem>
@@ -665,7 +810,14 @@ export function CatalogTable({
                     }
                   >
                     <div className="mb-4 aspect-[4/3] overflow-hidden rounded-[18px] border border-[rgba(109,91,81,0.12)] bg-white/50">
-                      <ImageCarousel alt={imageAlt} urls={urls} />
+                      <ImageCarousel
+                        alt={imageAlt}
+                        urls={urls}
+                        failedUrls={failedImageUrls}
+                        onImageError={(url) =>
+                          setFailedImageUrls((prev) => new Set(prev).add(url))
+                        }
+                      />
                     </div>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -700,18 +852,6 @@ export function CatalogTable({
                         </dd>
                       </div>
                       <div>
-                        <dt className="text-tremor-content-subtle">Category</dt>
-                        <dd className="mt-1 truncate text-tremor-content-emphasis">
-                          {item.category ?? '—'}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-tremor-content-subtle">Subcategory</dt>
-                        <dd className="mt-1 truncate text-tremor-content-emphasis">
-                          {item.subcategory ?? '—'}
-                        </dd>
-                      </div>
-                      <div>
                         <dt className="text-tremor-content-subtle">Age Range</dt>
                         <dd className="mt-1 truncate text-tremor-content-emphasis">
                           {item.age_range ?? '—'}
@@ -720,7 +860,7 @@ export function CatalogTable({
                       {showCreatorNames ? (
                         <>
                           <div className="col-span-2">
-                            <dt className="text-tremor-content-subtle">Creator</dt>
+                            <dt className="text-tremor-content-subtle">Requestor</dt>
                             <dd className="mt-1 space-y-0.5 text-tremor-content-emphasis">
                               <div>First: {item.first_name ?? '—'}</div>
                               <div>Last: {item.last_name ?? '—'}</div>
@@ -743,29 +883,19 @@ export function CatalogTable({
                       </p>
                     </div>
 
-                    {showBoqActions ? (
-                      <button
-                        type="button"
-                        onClick={() => addToBoq(item)}
-                        className="mt-4 w-full rounded-full border border-[rgba(228,60,47,0.22)] bg-white/70 px-4 py-2 text-sm font-medium text-tremor-content-strong transition-colors hover:bg-white"
-                      >
-                        {quantityInActiveBoq(item.id) > 0
-                          ? `Add to BOQ (${quantityInActiveBoq(item.id)})`
-                          : 'Add to BOQ'}
-                      </button>
-                    ) : null}
-                    {showRoomPlanner ? (
+                    {showBoqActions || showRoomPlanner ? (
                       <button
                         type="button"
                         onClick={() => {
-                          if (roomPlanner.activeRoomId) {
+                          addToBoq(item)
+                          if (showRoomPlanner && roomPlanner.activeRoomId) {
                             assignItemToActiveRoom(item.id, roomPlanner.activeRoomId)
                           }
                         }}
-                        disabled={!roomPlanner.activeRoomId}
-                        className="mt-3 w-full rounded-full border border-[rgba(109,91,81,0.18)] bg-white/60 px-4 py-2 text-sm font-medium text-tremor-content-strong transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={showRoomPlanner && !roomPlanner.activeRoomId && !showBoqActions}
+                        className={`mt-4 w-full rounded-full px-4 py-2 text-sm font-medium transition-colors border border-[rgba(228,60,47,0.22)] bg-white/70 text-tremor-content-strong hover:bg-white disabled:cursor-not-allowed disabled:opacity-40`}
                       >
-                        {location ? 'Move to active room' : 'Add to active room'}
+                        Add to BOQ
                       </button>
                     ) : null}
                   </article>
@@ -773,67 +903,45 @@ export function CatalogTable({
               })}
             </div>
           ) : (
-            <div className="dashboard-table-shell overflow-hidden">
-              <Table className="w-full table-fixed border-separate border-spacing-y-3 text-sm">
-                <colgroup>
-                  <col className="w-[6%]" />
-                  <col className="w-[14%]" />
-                  <col className="w-[8%]" />
-                  <col className="w-[14%]" />
-                  <col className="w-[8%]" />
-                  <col className="w-[8%]" />
-                  <col className="w-[10%]" />
-                  <col className="w-[14%]" />
-                  <col className="w-[8%]" />
-                  {approvalScope === 'non-approved' ? <col className="w-[10%]" /> : null}
-                  {showCreatorNames ? <col className="w-[12%]" /> : null}
-                  {showBoqActions ? <col className="w-[6%]" /> : null}
-                </colgroup>
+            <div className="dashboard-table-shell overflow-x-auto" style={{ position: 'relative' }}>
+              <Table className="w-full border-separate text-sm" style={{ minWidth: 'min-content', borderSpacing: '0' }}>
                 <TableHead>
-                  <TableRow>
-                    <TableHeaderCell className={TABLE_HEADER_CLASS}>
+                  <TableRow style={{ backgroundColor: '#e8ddd3' }}>
+                    <ResizableHeaderCell columnKey="image" width={columnWidths.image} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
                       Image
-                    </TableHeaderCell>
-                    <TableHeaderCell className={TABLE_HEADER_CLASS}>
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="name" width={columnWidths.name} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
                       Furniture Item Name
-                    </TableHeaderCell>
-                    <TableHeaderCell className={TABLE_HEADER_CLASS}>
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="sku" width={columnWidths.sku} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
                       SKU ID
-                    </TableHeaderCell>
-                    <TableHeaderCell className={TABLE_HEADER_CLASS}>
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="description" width={columnWidths.description} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
                       Description
-                    </TableHeaderCell>
-                    <TableHeaderCell className={TABLE_HEADER_CLASS}>
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="type" width={columnWidths.type} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
                       Furniture Type
-                    </TableHeaderCell>
-                    <TableHeaderCell className={TABLE_HEADER_CLASS}>
-                      Category
-                    </TableHeaderCell>
-                    <TableHeaderCell className={TABLE_HEADER_CLASS}>
-                      Subcategory
-                    </TableHeaderCell>
-                    <TableHeaderCell className={TABLE_HEADER_CLASS}>
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="finishes" width={columnWidths.finishes} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
                       Finishes Summary
-                    </TableHeaderCell>
-                    <TableHeaderCell className={TABLE_HEADER_CLASS}>
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="age" width={columnWidths.age} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
                       Age Range
-                    </TableHeaderCell>
+                    </ResizableHeaderCell>
                     {approvalScope === 'non-approved' ? (
-                      <TableHeaderCell className={TABLE_HEADER_CLASS}>
+                      <ResizableHeaderCell columnKey="approval" width={columnWidths.approval} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
                         Approval
-                      </TableHeaderCell>
+                      </ResizableHeaderCell>
                     ) : null}
                     {showCreatorNames ? (
-                      <TableHeaderCell className={TABLE_HEADER_CLASS}>
-                        Creator
-                      </TableHeaderCell>
+                      <ResizableHeaderCell columnKey="creator" width={columnWidths.creator} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                        Requestor
+                      </ResizableHeaderCell>
                     ) : null}
-                    {showBoqActions ? (
-                      <TableHeaderCell
-                        className={`${TABLE_HEADER_CLASS} text-right`}
-                      >
-                        BOQ
-                      </TableHeaderCell>
+                    {showRoomPlanner || showBoqActions ? (
+                      <ResizableHeaderCell columnKey="room" width={columnWidths.room} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                        Action
+                      </ResizableHeaderCell>
                     ) : null}
                   </TableRow>
                 </TableHead>
@@ -866,27 +974,37 @@ export function CatalogTable({
                       >
                         <TableCell
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} rounded-l-[22px]`}
+                          style={{ width: `${columnWidths.image}px`, minWidth: `${columnWidths.image}px` }}
                         >
                           <div className="h-14 w-full max-w-16 overflow-hidden rounded-[16px] border border-[rgba(109,91,81,0.12)] bg-white/50">
-                            {src ? (
-                              <img
-                                src={src}
-                                alt={
-                                  item.furniture_item_name ??
-                                  categoryDisplay(item.category, item.subcategory)
-                                }
-                                className="h-full w-full object-cover"
-                                loading="lazy"
-                              />
-                            ) : (
-                              <div className="flex h-full items-center justify-center text-xs text-tremor-content-subtle">
-                                —
-                              </div>
-                            )}
+                            {(() => {
+                              const displayUrl = src && failedImageUrls.has(src) ? '/product-images/nope-not-here.png' : src
+                              const imageSrc = displayUrl || '/product-images/nope-not-here.png'
+                              return (
+                                <img
+                                  key={imageSrc}
+                                  src={imageSrc}
+                                  alt={
+                                    item.furniture_item_name ??
+                                    categoryDisplay(item.category, item.subcategory)
+                                  }
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                  onError={() => {
+                                    if (src && !failedImageUrls.has(src)) {
+                                      setFailedImageUrls((prev) =>
+                                        new Set(prev).add(src)
+                                      )
+                                    }
+                                  }}
+                                />
+                              )
+                            })()}
                           </div>
                         </TableCell>
                         <TableCell
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
+                          style={{ width: `${columnWidths.name}px`, minWidth: `${columnWidths.name}px` }}
                         >
                           <div className="space-y-1">
                             <div>
@@ -902,42 +1020,38 @@ export function CatalogTable({
                         </TableCell>
                         <TableCell
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} font-mono text-xs`}
+                          style={{ width: `${columnWidths.sku}px`, minWidth: `${columnWidths.sku}px` }}
                         >
                           {item.sku_id ?? '—'}
                         </TableCell>
                         <TableCell
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
+                          style={{ width: `${columnWidths.description}px`, minWidth: `${columnWidths.description}px` }}
                         >
                           {truncate(item.description, LONG_TEXT_TRUNCATE)}
                         </TableCell>
                         <TableCell
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
+                          style={{ width: `${columnWidths.type}px`, minWidth: `${columnWidths.type}px` }}
                         >
                           {item.furniture_type ?? '—'}
                         </TableCell>
                         <TableCell
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
-                        >
-                          {item.category ?? '—'}
-                        </TableCell>
-                        <TableCell
-                          className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
-                        >
-                          {item.subcategory ?? '—'}
-                        </TableCell>
-                        <TableCell
-                          className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
+                          style={{ width: `${columnWidths.finishes}px`, minWidth: `${columnWidths.finishes}px` }}
                         >
                           {truncate(item.finishes_summary, LONG_TEXT_TRUNCATE)}
                         </TableCell>
                         <TableCell
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
+                          style={{ width: `${columnWidths.age}px`, minWidth: `${columnWidths.age}px` }}
                         >
                           {item.age_range ?? '—'}
                         </TableCell>
                         {approvalScope === 'non-approved' ? (
                           <TableCell
                             className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
+                            style={{ width: `${columnWidths.approval}px`, minWidth: `${columnWidths.approval}px` }}
                           >
                             {approvalValue(item) ? (
                               <Badge
@@ -958,7 +1072,8 @@ export function CatalogTable({
                         ) : null}
                         {showCreatorNames ? (
                           <TableCell
-                            className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} ${showBoqActions ? '' : 'rounded-r-[22px]'}`}
+                            className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} ${showBoqActions || showRoomPlanner ? '' : 'rounded-r-[22px]'}`}
+                            style={{ width: `${columnWidths.creator}px`, minWidth: `${columnWidths.creator}px` }}
                           >
                             <div className="space-y-0.5">
                               <div>First: {item.first_name ?? '—'}</div>
@@ -966,18 +1081,23 @@ export function CatalogTable({
                             </div>
                           </TableCell>
                         ) : null}
-                        {showBoqActions ? (
+                        {showRoomPlanner || showBoqActions ? (
                           <TableCell
-                            className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} rounded-r-[22px] text-right`}
+                            className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} rounded-r-[22px]`}
+                            style={{ width: `${columnWidths.room}px`, minWidth: `${columnWidths.room}px` }}
                           >
                             <button
                               type="button"
-                              onClick={() => addToBoq(item)}
-                              className="whitespace-nowrap rounded-full border border-[rgba(228,60,47,0.22)] bg-white/70 px-3 py-1.5 text-sm font-medium text-tremor-content-strong transition-colors hover:bg-white"
+                              onClick={() => {
+                                addToBoq(item)
+                                if (showRoomPlanner && roomPlanner.activeRoomId) {
+                                  assignItemToActiveRoom(item.id, roomPlanner.activeRoomId)
+                                }
+                              }}
+                              disabled={showRoomPlanner && !roomPlanner.activeRoomId && !showBoqActions}
+                              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition-colors border border-[rgba(228,60,47,0.22)] bg-white/70 text-tremor-content-strong hover:bg-white disabled:cursor-not-allowed disabled:opacity-40`}
                             >
-                              {quantityInActiveBoq(item.id) > 0
-                                ? `Add (${quantityInActiveBoq(item.id)})`
-                                : 'Add'}
+                              Add to BOQ
                             </button>
                           </TableCell>
                         ) : null}

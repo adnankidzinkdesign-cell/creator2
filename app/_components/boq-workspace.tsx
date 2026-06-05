@@ -13,6 +13,79 @@ import {
   Text,
   TextInput,
 } from '@tremor/react'
+
+function ResizableHeaderCell({
+  children,
+  columnKey,
+  width,
+  onResizeStart,
+}: {
+  children: React.ReactNode
+  columnKey: string
+  width: number
+  onResizeStart: (column: string, startX: number) => void
+}) {
+  const [showTooltip, setShowTooltip] = useState(false)
+
+  return (
+    <TableHeaderCell
+      className="relative select-none"
+      style={{
+        width: `${width}px`,
+        minWidth: `${width}px`,
+        position: 'relative',
+        borderRight: '1px solid #d4c5b9',
+        backgroundColor: '#e8ddd3',
+        color: '#5c4033',
+        fontWeight: '600',
+      }}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      <div className="flex items-center justify-between w-full h-full px-4 py-3">
+        <span className="flex-1 truncate">{children}</span>
+
+        {showTooltip && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '-28px',
+              right: '0',
+              padding: '4px 8px',
+              backgroundColor: '#1f2937',
+              color: 'white',
+              fontSize: '12px',
+              borderRadius: '4px',
+              whiteSpace: 'nowrap',
+              pointerEvents: 'none',
+              zIndex: 50,
+            }}
+          >
+            Drag to resize
+          </div>
+        )}
+
+        <div
+          onMouseDown={(e) => {
+            e.preventDefault()
+            onResizeStart(columnKey, e.clientX)
+          }}
+          onMouseEnter={() => setShowTooltip(true)}
+          onMouseLeave={() => setShowTooltip(false)}
+          style={{
+            position: 'absolute',
+            right: '-4px',
+            top: '0',
+            bottom: '0',
+            width: '8px',
+            cursor: 'col-resize',
+            userSelect: 'none',
+          }}
+          className="bg-[#d4c5b9] hover:bg-[#8b7355] opacity-0 hover:opacity-100 transition-opacity"
+        />
+      </div>
+    </TableHeaderCell>
+  )
+}
 import type { CrmDealOption } from '@/lib/queries/crm-deals'
 import type { FurnitureItemRow } from '@/lib/zoho/mappers/furniture-items'
 import { formatDimensions, formatNumber, formatPrice } from '@/lib/format'
@@ -96,7 +169,20 @@ export function BoqWorkspace({
     DEFAULT_ROOM_PLANNER_STATE,
   )
   const [hasLoadedRoomPlanner, setHasLoadedRoomPlanner] = useState(false)
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+    sku: 90,
+    name: 180,
+    room: 120,
+    category: 110,
+    finishes: 130,
+    dimensions: 100,
+    unitPrice: 110,
+    qty: 70,
+    total: 110,
+    action: 80,
+  })
   const autoCreatedBoqRef = useRef(false)
+  const resizeRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null)
 
   const itemById = useMemo(
     () => new Map(items.map((item) => [item.id, item])),
@@ -247,6 +333,30 @@ export function BoqWorkspace({
     writeRoomPlannerState(roomPlanner)
   }, [hasLoadedRoomPlanner, roomPlanner])
 
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizeRef.current) return
+      const diff = e.clientX - resizeRef.current.startX
+      const newWidth = Math.max(50, resizeRef.current.startWidth + diff)
+      setColumnWidths((prev) => ({
+        ...prev,
+        [resizeRef.current!.column]: newWidth,
+      }))
+    }
+
+    const handleMouseUp = () => {
+      resizeRef.current = null
+    }
+
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [columnWidths])
+
   // Auto-create a Draft BOQ from room items when the page loads with rooms but no BOQ
   useEffect(() => {
     if (!hasLoadedBoqs || !hasLoadedRoomPlanner) return
@@ -335,6 +445,30 @@ export function BoqWorkspace({
     )
   }
 
+  function duplicateLine(itemId: string) {
+    if (!activeBoqId) return
+    const existingLine = activeBoq?.lines.find((line) => line.itemId === itemId)
+    if (!existingLine) return
+
+    const newItemId = `${itemId}-dup-${Date.now()}`
+    const newLine = { itemId: newItemId, quantity: existingLine.quantity }
+
+    setBoqs((current) =>
+      current.map((boq) =>
+        boq.id === activeBoqId
+          ? { ...boq, lines: [...boq.lines, newLine] }
+          : boq,
+      ),
+    )
+
+    // Auto-assign to active room if one exists
+    if (roomPlanner.activeRoomId) {
+      setRoomPlanner((current) =>
+        assignItemToRoomState(current, newItemId, roomPlanner.activeRoomId),
+      )
+    }
+  }
+
   function assignItemToRoom(itemId: string, roomId: string) {
     setRoomPlanner((current) => assignItemToRoomState(current, itemId, roomId))
   }
@@ -411,14 +545,11 @@ export function BoqWorkspace({
         ? 'bg-[rgba(247,241,234,0.96)]'
         : 'bg-[rgba(239,231,220,0.96)]'
     return (
-      <TableRow key={line.itemId} className="group">
-        <TableCell className={`rounded-l-[22px] font-mono text-xs ${rowTone}`}>
-          <div>{item.sku_id ?? '—'}</div>
-          {item.old_code ? (
-            <div className="mt-0.5 text-tremor-content-subtle">Old {item.old_code}</div>
-          ) : null}
+      <TableRow key={line.itemId} className="group transition-colors duration-200">
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content font-mono text-xs ${rowTone} px-4 py-4 border-r border-[rgba(212,197,185,0.4)]`} style={{ width: `${columnWidths.sku}px`, minWidth: `${columnWidths.sku}px` }}>
+          {item.sku_id ?? '—'}
         </TableCell>
-        <TableCell className={rowTone}>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content ${rowTone} px-4 py-4 border-r border-[rgba(212,197,185,0.4)]`} style={{ width: `${columnWidths.name}px`, minWidth: `${columnWidths.name}px` }}>
           <div className="space-y-0.5">
             <div className="font-medium leading-snug text-tremor-content-strong">
               {item.furniture_item_name ||
@@ -431,25 +562,25 @@ export function BoqWorkspace({
             ) : null}
           </div>
         </TableCell>
-        <TableCell className={rowTone}>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.room}px`, minWidth: `${columnWidths.room}px` }}>
           {renderRoomSelector(line.itemId, location)}
         </TableCell>
-        <TableCell className={rowTone}>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.category}px`, minWidth: `${columnWidths.category}px` }}>
           <div className="text-sm">{categoryDisplay(item.category, item.subcategory)}</div>
           {item.furniture_type ? (
             <div className="text-xs text-tremor-content">{item.furniture_type}</div>
           ) : null}
         </TableCell>
-        <TableCell className={`text-xs ${rowTone}`}>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content text-xs ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.finishes}px`, minWidth: `${columnWidths.finishes}px` }}>
           {truncate(item.finishes_summary, 80) || '—'}
         </TableCell>
-        <TableCell className={`tabular-nums text-xs ${rowTone}`}>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content tabular-nums text-xs ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.dimensions}px`, minWidth: `${columnWidths.dimensions}px` }}>
           {formatDimensions(item.length_mm, item.height_mm, item.depth_mm)}
         </TableCell>
-        <TableCell className={`text-right tabular-nums ${rowTone}`}>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content text-right tabular-nums ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.unitPrice}px`, minWidth: `${columnWidths.unitPrice}px` }}>
           {formatPrice(price, activeCurrency)}
         </TableCell>
-        <TableCell className={`text-right ${rowTone}`}>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content text-right ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.qty}px`, minWidth: `${columnWidths.qty}px` }}>
           <input
             type="number"
             min={1}
@@ -461,16 +592,16 @@ export function BoqWorkspace({
             aria-label={`Quantity for ${item.sku_id ?? 'item'}`}
           />
         </TableCell>
-        <TableCell className={`text-right tabular-nums ${rowTone}`}>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content text-right tabular-nums ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.total}px`, minWidth: `${columnWidths.total}px` }}>
           {formatPrice((price ?? 0) * line.quantity, activeCurrency)}
         </TableCell>
-        <TableCell className={`rounded-r-[22px] text-right ${rowTone}`}>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content text-right ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.action}px`, minWidth: `${columnWidths.action}px` }}>
           <button
             type="button"
-            onClick={() => removeLine(line.itemId)}
-            className="text-sm font-medium text-[#e43c2f] hover:text-[#b92d22]"
+            onClick={() => duplicateLine(line.itemId)}
+            className="text-sm font-medium text-tremor-content-strong hover:text-[#e43c2f] transition-colors"
           >
-            Remove
+            {roomPlanner.activeRoomId ? 'Duplicate to Room' : 'Duplicate'}
           </button>
         </TableCell>
       </TableRow>
@@ -491,6 +622,7 @@ export function BoqWorkspace({
       'Quantity',
       `Unit Price ${activeCurrency}`,
       `Total ${activeCurrency}`,
+      'REQUESTOR',
     ]
 
     let srNo = 0
@@ -505,6 +637,9 @@ export function BoqWorkspace({
       const roomName =
         location?.roomName ??
         firstRawString(item, ['Room_Name', 'RoomName', 'Room Name'])
+      const requestor = [item.first_name, item.last_name]
+        .filter(Boolean)
+        .join(' ') || ''
       return [
         [
           srNo,
@@ -526,6 +661,7 @@ export function BoqWorkspace({
           line.quantity,
           itemPrice(item, activeCurrency) ?? 0,
           (itemPrice(item, activeCurrency) ?? 0) * line.quantity,
+          requestor,
         ],
       ]
     })
@@ -537,14 +673,15 @@ export function BoqWorkspace({
     )
     const titleRow = [...blankRow]
     titleRow[0] = `BOQ: ${activeBoq.name}`
-    titleRow[columnCount - 1] = boqTotal
+    titleRow[8] = `Overall Total: ${boqTotal}`
     const dealRow = [...blankRow]
     dealRow[0] = `Deal: ${activeBoq.dealName ?? activeDeal?.deal_name ?? ''}`
     dealRow[1] = activeBoq.dealAccountName ?? activeDeal?.account_name ?? ''
     dealRow[2] = activeBoq.dealStage ?? activeDeal?.stage ?? ''
+    dealRow[3] = `School Group: ${activeDeal?.school_group ?? ''}`
+    dealRow[4] = `School: ${activeDeal?.school_name ?? ''}`
     const currencyRow = [...blankRow]
     currencyRow[0] = `Currency: ${activeCurrency}`
-    currencyRow[columnCount - 1] = `Overall Total: ${boqTotal}`
     const worksheetRows: Array<Array<string | number>> = [
       titleRow,
       dealRow,
@@ -669,7 +806,19 @@ export function BoqWorkspace({
                 Overall total: {formatPrice(boqTotal, activeCurrency)}
               </span>
               {activeDeal && (
-                <span className="text-tremor-content">{dealLabel(activeDeal)}</span>
+                <>
+                  <span className="text-tremor-content">{dealLabel(activeDeal)}</span>
+                  <span className="text-tremor-content">
+                    {activeDeal.school_group || activeDeal.school_name ? (
+                      <>
+                        {activeDeal.school_group && <span>{activeDeal.school_group}</span>}
+                        {activeDeal.school_name && <span className="ml-2">({activeDeal.school_name})</span>}
+                      </>
+                    ) : (
+                      'School info not available'
+                    )}
+                  </span>
+                </>
               )}
             </div>
             <div className="flex items-center gap-3">
@@ -719,35 +868,39 @@ export function BoqWorkspace({
             </div>
           ) : (
             <div className="dashboard-table-shell mt-4 overflow-x-auto">
-              <Table className="w-full table-fixed border-separate border-spacing-y-2 text-sm">
-                <colgroup>
-                  <col className="w-[7%]" />
-                  <col className="w-[16%]" />
-                  <col className="w-[12%]" />
-                  <col className="w-[11%]" />
-                  <col className="w-[13%]" />
-                  <col className="w-[9%]" />
-                  <col className="w-[9%]" />
-                  <col className="w-[7%]" />
-                  <col className="w-[9%]" />
-                  <col className="w-[5%]" />
-                </colgroup>
+              <Table className="w-full border-separate border-spacing-y-2 text-sm" style={{ minWidth: 'min-content', borderSpacing: '0' }}>
                 <TableHead>
-                  <TableRow>
-                    <TableHeaderCell>SKU ID</TableHeaderCell>
-                    <TableHeaderCell>Item Name</TableHeaderCell>
-                    <TableHeaderCell>Room</TableHeaderCell>
-                    <TableHeaderCell>Category</TableHeaderCell>
-                    <TableHeaderCell>Finishes</TableHeaderCell>
-                    <TableHeaderCell>Dimensions</TableHeaderCell>
-                    <TableHeaderCell className="text-right">
-                      Unit Price {activeCurrency}
-                    </TableHeaderCell>
-                    <TableHeaderCell className="text-right">Qty</TableHeaderCell>
-                    <TableHeaderCell className="text-right">
-                      Total {activeCurrency}
-                    </TableHeaderCell>
-                    <TableHeaderCell className="text-right">Action</TableHeaderCell>
+                  <TableRow style={{ backgroundColor: '#e8ddd3' }}>
+                    <ResizableHeaderCell columnKey="sku" width={columnWidths.sku} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      SKU ID
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="name" width={columnWidths.name} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      Item Name
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="room" width={columnWidths.room} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      Room
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="category" width={columnWidths.category} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      Category
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="finishes" width={columnWidths.finishes} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      Finishes
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="dimensions" width={columnWidths.dimensions} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      Dimensions
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="unitPrice" width={columnWidths.unitPrice} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      <span className="text-right block">Unit Price {activeCurrency}</span>
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="qty" width={columnWidths.qty} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      <span className="text-right block">Qty</span>
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="total" width={columnWidths.total} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      <span className="text-right block">Total {activeCurrency}</span>
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="action" width={columnWidths.action} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      <span className="text-right block">Action</span>
+                    </ResizableHeaderCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>

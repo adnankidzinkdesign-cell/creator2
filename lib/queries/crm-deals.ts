@@ -10,13 +10,15 @@ export type CrmDealOption = {
   account_name: string | null
   owner_name: string | null
   modified_time: string | null
+  school_name: string | null
+  school_group: string | null
 }
 
 export async function getCrmDealOptions(): Promise<CrmDealOption[]> {
   const supabase = createAdminClient()
   const { data, error } = await supabase
     .from('mirror_crm_deals')
-    .select('id, deal_name, stage, amount, closing_date, account_name, owner_name, modified_time')
+    .select('id, deal_name, stage, amount, closing_date, account_name, owner_name, modified_time, school_name, school_group')
     .order('modified_time', { ascending: false, nullsFirst: false })
     .limit(2000)
 

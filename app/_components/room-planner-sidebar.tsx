@@ -314,6 +314,7 @@ export function RoomPlannerSidebar({
                                   value={editingRoomName}
                                   onChange={(e) => setEditingRoomName(e.target.value)}
                                   onKeyDown={(e) => {
+                                    e.stopPropagation()
                                     if (e.key === 'Enter') saveRoomName(room.id)
                                     if (e.key === 'Escape') cancelEditRoom()
                                   }}
