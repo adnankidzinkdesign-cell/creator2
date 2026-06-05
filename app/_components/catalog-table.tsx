@@ -29,6 +29,7 @@ import {
   truncate,
   unique,
 } from './catalog-utils'
+import { cleanDescription } from '@/lib/zoho/parse'
 import {
   addItemToStoredBoq,
   readBoqState,
@@ -38,6 +39,7 @@ import {
   addFloorToState,
   addRoomToState,
   assignItemToRoomState,
+  assignItemToRoomsState,
   cloneRoomToState,
   renameRoomInState,
   moveRoomToFloor,
@@ -287,6 +289,7 @@ export function CatalogTable({
     DEFAULT_ROOM_PLANNER_STATE,
   )
   const [hasLoadedRoomPlanner, setHasLoadedRoomPlanner] = useState(false)
+  const [selectedRoomIds, setSelectedRoomIds] = useState<Set<string>>(new Set())
   const [dragItemId, setDragItemId] = useState<string | null>(null)
   const [dragRoomId, setDragRoomId] = useState<string | null>(null)
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set())
@@ -432,6 +435,21 @@ export function CatalogTable({
     return result
   }, [roomPlanner])
 
+  const allRoomIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const floor of roomPlanner.floors) {
+      for (const room of floor.rooms) ids.add(room.id)
+    }
+    return ids
+  }, [roomPlanner])
+
+  // Only count selections that still point at a real room (rooms can be deleted
+  // after being selected). This drives both the button label and the assignment.
+  const validSelectedRoomIds = useMemo(
+    () => [...selectedRoomIds].filter((id) => allRoomIds.has(id)),
+    [allRoomIds, selectedRoomIds],
+  )
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const state = readBoqState()
@@ -483,15 +501,37 @@ export function CatalogTable({
     }))
   }
 
-  function selectRoom(roomId: string) {
+  // Toggle a room in/out of the multi-selection. Clicking a selected room
+  // deselects it; clicking an unselected one adds it. The "Add" button then
+  // targets every selected room at once.
+  function toggleRoomSelection(roomId: string) {
+    setSelectedRoomIds((current) => {
+      const next = new Set(current)
+      if (next.has(roomId)) {
+        next.delete(roomId)
+      } else {
+        next.add(roomId)
+      }
+      return next
+    })
     setRoomPlanner((current) => ({
       ...current,
-      activeRoomId: roomId,
       activeFloorId:
         current.floors.find((floor) =>
           floor.rooms.some((room) => room.id === roomId),
         )?.id ?? current.activeFloorId,
     }))
+  }
+
+  // Adds an item to the BOQ and, if any spaces are selected, places it in all
+  // of them. With no selection it simply lands in the BOQ (unassigned).
+  function addToBoqAndSelectedRooms(item: FurnitureItemRow) {
+    addToBoq(item)
+    if (validSelectedRoomIds.length > 0) {
+      setRoomPlanner((current) =>
+        assignItemToRoomsState(current, item.id, validSelectedRoomIds),
+      )
+    }
   }
 
   function assignItemToActiveRoom(itemId: string, roomId: string) {
@@ -584,6 +624,13 @@ export function CatalogTable({
       document.removeEventListener('mouseup', handleMouseUp)
     }
   }, [columnWidths])
+
+  const addButtonLabel =
+    validSelectedRoomIds.length === 0
+      ? 'Add to BOQ'
+      : validSelectedRoomIds.length === 1
+        ? 'Add to Selected space'
+        : 'Add to Selected spaces'
 
   return (
     <section className="space-y-6">
@@ -739,7 +786,7 @@ export function CatalogTable({
           <RoomPlannerSidebar
             floors={roomPlanner.floors}
             activeFloorId={roomPlanner.activeFloorId}
-            activeRoomId={roomPlanner.activeRoomId}
+            selectedRoomIds={validSelectedRoomIds}
             dragRoomId={dragRoomId}
             dragItemId={dragItemId}
             draggedItemRef={draggedItemRef}
@@ -749,7 +796,7 @@ export function CatalogTable({
             onAddFloor={addFloor}
             onAddRoom={addRoom}
             onSelectFloor={selectFloor}
-            onSelectRoom={selectRoom}
+            onToggleRoom={toggleRoomSelection}
             onDragRoom={setDragRoomId}
             onDropItem={(roomId, itemId) => assignItemToActiveRoom(itemId, roomId)}
             onCloneRoom={cloneRoom}
@@ -848,7 +895,7 @@ export function CatalogTable({
                       <div className="col-span-2">
                         <dt className="text-tremor-content-subtle">Description</dt>
                         <dd className="mt-1 line-clamp-3 text-tremor-content-emphasis">
-                          {truncate(item.description, 170)}
+                          {truncate(cleanDescription(item.description), 170)}
                         </dd>
                       </div>
                       <div>
@@ -886,16 +933,10 @@ export function CatalogTable({
                     {showBoqActions || showRoomPlanner ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          addToBoq(item)
-                          if (showRoomPlanner && roomPlanner.activeRoomId) {
-                            assignItemToActiveRoom(item.id, roomPlanner.activeRoomId)
-                          }
-                        }}
-                        disabled={showRoomPlanner && !roomPlanner.activeRoomId && !showBoqActions}
+                        onClick={() => addToBoqAndSelectedRooms(item)}
                         className={`mt-4 w-full rounded-full px-4 py-2 text-sm font-medium transition-colors border border-[rgba(228,60,47,0.22)] bg-white/70 text-tremor-content-strong hover:bg-white disabled:cursor-not-allowed disabled:opacity-40`}
                       >
-                        Add to BOQ
+                        {showRoomPlanner ? addButtonLabel : 'Add to BOQ'}
                       </button>
                     ) : null}
                   </article>
@@ -1028,7 +1069,7 @@ export function CatalogTable({
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
                           style={{ width: `${columnWidths.description}px`, minWidth: `${columnWidths.description}px` }}
                         >
-                          {truncate(item.description, LONG_TEXT_TRUNCATE)}
+                          {truncate(cleanDescription(item.description), LONG_TEXT_TRUNCATE)}
                         </TableCell>
                         <TableCell
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
@@ -1088,16 +1129,10 @@ export function CatalogTable({
                           >
                             <button
                               type="button"
-                              onClick={() => {
-                                addToBoq(item)
-                                if (showRoomPlanner && roomPlanner.activeRoomId) {
-                                  assignItemToActiveRoom(item.id, roomPlanner.activeRoomId)
-                                }
-                              }}
-                              disabled={showRoomPlanner && !roomPlanner.activeRoomId && !showBoqActions}
+                              onClick={() => addToBoqAndSelectedRooms(item)}
                               className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition-colors border border-[rgba(228,60,47,0.22)] bg-white/70 text-tremor-content-strong hover:bg-white disabled:cursor-not-allowed disabled:opacity-40`}
                             >
-                              Add to BOQ
+                              {showRoomPlanner ? addButtonLabel : 'Add to BOQ'}
                             </button>
                           </TableCell>
                         ) : null}

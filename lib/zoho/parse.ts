@@ -27,6 +27,11 @@ export function parseString(v: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+export function cleanDescription(text: string | null): string | null {
+  if (!text) return text
+  return text.replace(/\s*\/\s*\/\s*/g, ' / ').replace(/\s+/g, ' ').trim()
+}
+
 /**
  * Parses a Zoho-style numeric (which Zoho returns as a string like "500" or
  * "1968.60") into a finite number, or null.

@@ -13,7 +13,7 @@ type RoomItem = {
 export function RoomPlannerSidebar({
   floors,
   activeFloorId,
-  activeRoomId,
+  selectedRoomIds,
   dragRoomId,
   dragItemId,
   draggedItemRef,
@@ -23,7 +23,7 @@ export function RoomPlannerSidebar({
   onAddFloor,
   onAddRoom,
   onSelectFloor,
-  onSelectRoom,
+  onToggleRoom,
   onDragRoom,
   onDropItem,
   onCloneRoom,
@@ -35,7 +35,7 @@ export function RoomPlannerSidebar({
 }: {
   floors: RoomPlannerFloor[]
   activeFloorId: string
-  activeRoomId: string
+  selectedRoomIds: string[]
   dragRoomId: string | null
   dragItemId: string | null
   draggedItemRef: MutableRefObject<string | null>
@@ -45,7 +45,7 @@ export function RoomPlannerSidebar({
   onAddFloor: (name: string) => void
   onAddRoom: (floorId: string, name: string) => void
   onSelectFloor: (floorId: string) => void
-  onSelectRoom: (roomId: string) => void
+  onToggleRoom: (roomId: string) => void
   onDragRoom: (roomId: string | null) => void
   onDropItem: (roomId: string, itemId: string) => void
   onCloneRoom?: (roomId: string) => void
@@ -246,7 +246,7 @@ export function RoomPlannerSidebar({
                     </div>
                   ) : (
                     floor.rooms.map((room) => {
-                      const isActiveRoom = room.id === activeRoomId
+                      const isSelectedRoom = selectedRoomIds.includes(room.id)
                       const isDraggingOver = dragRoomId === room.id
                       const items = roomItemsById[room.id] ?? []
                       const count = roomItemCountById[room.id] ?? room.itemIds.length
@@ -266,7 +266,7 @@ export function RoomPlannerSidebar({
                             setDraggedRoomId(null)
                             setDragOverFloorId(null)
                           }}
-                          onClick={() => onSelectRoom(room.id)}
+                          onClick={() => onToggleRoom(room.id)}
                           onDragOver={(event) => {
                             event.preventDefault()
                             event.dataTransfer.dropEffect = 'move'
@@ -292,7 +292,7 @@ export function RoomPlannerSidebar({
                           onKeyDown={(event) => {
                             if (event.key === 'Enter' || event.key === ' ') {
                               event.preventDefault()
-                              onSelectRoom(room.id)
+                              onToggleRoom(room.id)
                             }
                           }}
                           className={
@@ -301,13 +301,18 @@ export function RoomPlannerSidebar({
                             ' ' +
                             (isDraggingOver
                               ? 'border-[rgba(228,60,47,0.45)] bg-[rgba(228,60,47,0.08)]'
-                              : isActiveRoom
-                                ? 'border-[rgba(228,60,47,0.3)] bg-white'
+                              : isSelectedRoom
+                                ? 'border-[rgba(228,60,47,0.55)] bg-[rgba(228,60,47,0.1)] ring-2 ring-[rgba(228,60,47,0.4)]'
                                 : 'border-[rgba(109,91,81,0.12)] bg-white/70 hover:bg-white')
                           }
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
+                              {isSelectedRoom ? (
+                                <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-[#e43c2f] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                                  ✓ Selected
+                                </span>
+                              ) : null}
                               {editingRoomId === room.id ? (
                                 <input
                                   type="text"

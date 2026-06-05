@@ -90,6 +90,7 @@ import type { CrmDealOption } from '@/lib/queries/crm-deals'
 import type { FurnitureItemRow } from '@/lib/zoho/mappers/furniture-items'
 import { formatDimensions, formatNumber, formatPrice } from '@/lib/format'
 import { categoryDisplay, truncate } from './catalog-utils'
+import { cleanDescription } from '@/lib/zoho/parse'
 import {
   readBoqState,
   writeBoqState,
@@ -169,6 +170,9 @@ export function BoqWorkspace({
     DEFAULT_ROOM_PLANNER_STATE,
   )
   const [hasLoadedRoomPlanner, setHasLoadedRoomPlanner] = useState(false)
+  const [dragOverRoomId, setDragOverRoomId] = useState<string | null>(null)
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null)
+  const draggedBoqItemRef = useRef<string | null>(null)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     sku: 90,
     name: 180,
@@ -473,6 +477,35 @@ export function BoqWorkspace({
     setRoomPlanner((current) => assignItemToRoomState(current, itemId, roomId))
   }
 
+  // Drag-and-drop handlers shared by a room's header bar AND every item row in
+  // that room, so the whole room block is a drop target — not just the thin
+  // header strip. preventDefault on dragOver is what makes an element droppable.
+  function roomDropHandlers(roomId: string) {
+    return {
+      onDragOver: (e: React.DragEvent) => {
+        if (!draggedBoqItemRef.current) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        if (dragOverRoomId !== roomId) setDragOverRoomId(roomId)
+      },
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault()
+        const itemId =
+          draggedBoqItemRef.current ||
+          e.dataTransfer.getData('application/x-kidzink-item-id') ||
+          e.dataTransfer.getData('text/plain')
+        if (itemId) {
+          setRoomPlanner((current) =>
+            assignItemToRoomState(current, itemId, roomId),
+          )
+        }
+        draggedBoqItemRef.current = null
+        setDragOverRoomId(null)
+        setDraggingItemId(null)
+      },
+    }
+  }
+
   function removeItemFromRoom(itemId: string) {
     setRoomPlanner((current) => removeItemFromRoomState(current, itemId))
   }
@@ -535,17 +568,38 @@ export function BoqWorkspace({
     )
   }
 
-  function renderItemRow(line: BoqLine, index: number) {
+  function renderItemRow(line: BoqLine, index: number, dropRoomId?: string) {
     const item = itemById.get(line.itemId)
     if (!item) return null
     const price = itemPrice(item, activeCurrency)
     const location = itemLocationById.get(line.itemId)
+    const isDropTargetRoom = dropRoomId != null && dragOverRoomId === dropRoomId
     const rowTone =
       index % 2 === 0
         ? 'bg-[rgba(247,241,234,0.96)]'
         : 'bg-[rgba(239,231,220,0.96)]'
+    // Every row in a room is also a drop target for that room, so dropping
+    // anywhere inside the room block (not just the header) moves the item.
+    const dropProps = dropRoomId != null ? roomDropHandlers(dropRoomId) : {}
     return (
-      <TableRow key={line.itemId} className="group transition-colors duration-200">
+      <TableRow
+        key={line.itemId}
+        className={`group transition-colors duration-200 cursor-grab ${draggingItemId === line.itemId ? 'opacity-40' : ''} ${isDropTargetRoom ? 'ring-2 ring-[rgba(228,60,47,0.45)]' : ''}`}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData('text/plain', line.itemId)
+          e.dataTransfer.setData('application/x-kidzink-item-id', line.itemId)
+          draggedBoqItemRef.current = line.itemId
+          setDraggingItemId(line.itemId)
+        }}
+        onDragEnd={() => {
+          draggedBoqItemRef.current = null
+          setDraggingItemId(null)
+          setDragOverRoomId(null)
+        }}
+        {...dropProps}
+      >
         <TableCell className={`!whitespace-normal break-words align-top text-tremor-content font-mono text-xs ${rowTone} px-4 py-4 border-r border-[rgba(212,197,185,0.4)]`} style={{ width: `${columnWidths.sku}px`, minWidth: `${columnWidths.sku}px` }}>
           {item.sku_id ?? '—'}
         </TableCell>
@@ -557,7 +611,7 @@ export function BoqWorkspace({
             </div>
             {item.description ? (
               <div className="text-xs leading-snug text-tremor-content">
-                {truncate(item.description, 90)}
+                {truncate(cleanDescription(item.description), 90)}
               </div>
             ) : null}
           </div>
@@ -940,17 +994,29 @@ export function BoqWorkspace({
                                   <TableRow>
                                     <TableCell
                                       colSpan={COLS}
-                                      className="rounded-[18px] bg-[rgba(228,60,47,0.07)] px-5 py-2 text-sm font-medium text-tremor-content-strong"
+                                      className={`rounded-[18px] px-5 py-2 text-sm font-medium text-tremor-content-strong transition-colors ${
+                                        dragOverRoomId === room.roomId
+                                          ? 'bg-[rgba(228,60,47,0.25)] ring-2 ring-[rgba(228,60,47,0.5)]'
+                                          : draggingItemId
+                                            ? 'bg-[rgba(228,60,47,0.07)] ring-2 ring-dashed ring-[rgba(228,60,47,0.3)]'
+                                            : 'bg-[rgba(228,60,47,0.07)]'
+                                      }`}
+                                      {...roomDropHandlers(room.roomId)}
                                     >
                                       <span className="ml-3">{room.roomName}</span>
                                       <span className="ml-3 text-xs font-normal text-tremor-content">
                                         {room.lines.length} item{room.lines.length !== 1 ? 's' : ''}{' '}
                                         &middot; {formatPrice(roomTotal, activeCurrency)}
                                       </span>
+                                      {dragOverRoomId === room.roomId && (
+                                        <span className="ml-3 text-xs font-normal text-[#e43c2f]">
+                                          ↓ Drop here to move
+                                        </span>
+                                      )}
                                     </TableCell>
                                   </TableRow>
                                   {room.lines.map((line, index) =>
-                                    renderItemRow(line, index),
+                                    renderItemRow(line, index, room.roomId),
                                   )}
                                 </Fragment>
                               )
@@ -980,7 +1046,7 @@ export function BoqWorkspace({
                     </>
                   ) : (
                     activeBoq.lines.map((line, index) =>
-                      renderItemRow(line, index),
+                      renderItemRow(line, index, undefined),
                     )
                   )}
                 </TableBody>

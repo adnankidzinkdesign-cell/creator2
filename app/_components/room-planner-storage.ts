@@ -254,6 +254,38 @@ export function assignItemToRoomState(
   }
 }
 
+/**
+ * Adds an item to EACH of the given rooms (set-union semantics) without
+ * removing it from any other room. Unlike `assignItemToRoomState`, this does
+ * not move the item exclusively — it lets the same item live in several rooms,
+ * which is what "Add to selected spaces" (multi-select) needs.
+ */
+export function assignItemToRoomsState(
+  state: RoomPlannerState,
+  itemId: string,
+  roomIds: string[],
+): RoomPlannerState {
+  if (roomIds.length === 0) return state
+  const targetRoomIds = new Set(roomIds)
+
+  return {
+    ...state,
+    floors: state.floors.map((floor) => ({
+      ...floor,
+      rooms: floor.rooms.map((room) =>
+        targetRoomIds.has(room.id)
+          ? {
+              ...room,
+              itemIds: room.itemIds.includes(itemId)
+                ? room.itemIds
+                : [...room.itemIds, itemId],
+            }
+          : room,
+      ),
+    })),
+  }
+}
+
 export function removeItemFromRoomState(
   state: RoomPlannerState,
   itemId: string,
