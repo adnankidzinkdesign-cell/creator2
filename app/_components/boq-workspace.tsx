@@ -13,6 +13,7 @@ import {
   Text,
   TextInput,
 } from '@tremor/react'
+import { ConfirmationModal } from './confirmation-modal'
 
 function ResizableHeaderCell({
   children,
@@ -99,7 +100,6 @@ import {
   type BoqLine,
 } from './boq-storage'
 import {
-  readRoomPlannerState,
   writeRoomPlannerState,
   assignItemToRoomState,
   removeItemFromRoomState,
@@ -109,9 +109,9 @@ import {
   renameRoomInState,
   moveRoomToFloor,
   addFloorToState,
-  DEFAULT_ROOM_PLANNER_STATE,
   type RoomPlannerState,
 } from './room-planner-storage'
+import { useRoomPlanner } from './use-room-planner'
 
 function rawString(item: FurnitureItemRow, key: string): string {
   const value = item.raw[key]
@@ -172,10 +172,7 @@ export function BoqWorkspace({
   const [dealQuery, setDealQuery] = useState('')
   const [isDealMenuOpen, setIsDealMenuOpen] = useState(false)
   const [hasLoadedBoqs, setHasLoadedBoqs] = useState(false)
-  const [roomPlanner, setRoomPlanner] = useState<RoomPlannerState>(
-    DEFAULT_ROOM_PLANNER_STATE,
-  )
-  const [hasLoadedRoomPlanner, setHasLoadedRoomPlanner] = useState(false)
+  const { roomPlanner, setRoomPlanner, hasLoaded: hasLoadedRoomPlanner } = useRoomPlanner()
   const [dragOverRoomId, setDragOverRoomId] = useState<string | null>(null)
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null)
   const draggedBoqItemRef = useRef<string | null>(null)
@@ -193,6 +190,7 @@ export function BoqWorkspace({
   })
   const autoCreatedBoqRef = useRef(false)
   const resizeRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null)
+  const [confirmationState, setConfirmationState] = useState<{ type: 'floor' | 'room'; id: string; name: string } | null>(null)
 
   const itemById = useMemo(
     () => new Map(items.map((item) => [item.id, item])),
@@ -325,13 +323,6 @@ export function BoqWorkspace({
     return () => window.clearTimeout(timer)
   }, [])
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setRoomPlanner(readRoomPlannerState())
-      setHasLoadedRoomPlanner(true)
-    }, 0)
-    return () => window.clearTimeout(timer)
-  }, [])
 
   useEffect(() => {
     if (!hasLoadedBoqs) return
@@ -521,11 +512,21 @@ export function BoqWorkspace({
   }
 
   function removeRoom(roomId: string) {
+    const room = roomPlanner.floors
+      .flatMap((f) => f.rooms)
+      .find((r) => r.id === roomId)
+    if (!room) return
+    setConfirmationState({ type: 'room', id: roomId, name: room.name })
+  }
+
+  function confirmRemoveRoom() {
+    if (!confirmationState || confirmationState.type !== 'room') return
     setRoomPlanner((current) => {
-      const next = removeRoomFromState(current, roomId)
+      const next = removeRoomFromState(current, confirmationState.id)
       writeRoomPlannerState(next)
       return next
     })
+    setConfirmationState(null)
   }
 
   function cloneFloor(floorId: string) {
@@ -555,11 +556,19 @@ export function BoqWorkspace({
   }
 
   function removeFloor(floorId: string) {
+    const floor = roomPlanner.floors.find((f) => f.id === floorId)
+    if (!floor) return
+    setConfirmationState({ type: 'floor', id: floorId, name: floor.name })
+  }
+
+  function confirmRemoveFloor() {
+    if (!confirmationState || confirmationState.type !== 'floor') return
     setRoomPlanner((current) => {
-      const next = removeFloorFromState(current, floorId)
+      const next = removeFloorFromState(current, confirmationState.id)
       writeRoomPlannerState(next)
       return next
     })
+    setConfirmationState(null)
   }
 
   function importRoomItems() {
@@ -741,7 +750,6 @@ export function BoqWorkspace({
       'Quantity',
       `Unit Price ${activeCurrency}`,
       `Total ${activeCurrency}`,
-      'REQUESTOR',
     ]
 
     let srNo = 0
@@ -756,9 +764,6 @@ export function BoqWorkspace({
       const roomName =
         location?.roomName ??
         firstRawString(item, ['Room_Name', 'RoomName', 'Room Name'])
-      const requestor = [item.first_name, item.last_name]
-        .filter(Boolean)
-        .join(' ') || ''
       return [
         [
           srNo,
@@ -780,7 +785,6 @@ export function BoqWorkspace({
           line.quantity,
           itemPrice(item, activeCurrency) ?? 0,
           (itemPrice(item, activeCurrency) ?? 0) * line.quantity,
-          requestor,
         ],
       ]
     })
@@ -799,48 +803,36 @@ export function BoqWorkspace({
     dealRow[2] = activeBoq.dealStage ?? activeDeal?.stage ?? ''
     dealRow[3] = `School Group: ${activeDeal?.school_group ?? ''}`
     dealRow[4] = `School: ${activeDeal?.school_name ?? ''}`
-    const currencyRow = [...blankRow]
-    currencyRow[0] = `Currency: ${activeCurrency}`
     const worksheetRows: Array<Array<string | number>> = [
       titleRow,
       dealRow,
-      currencyRow,
       blankRow,
       headers,
       ...rows,
     ]
 
-    const xmlRows = worksheetRows
+    // Generate CSV content
+    const csvContent = worksheetRows
       .map((row) => {
-        const cells = row
+        return row
           .map((cell) => {
-            if (typeof cell === 'number') {
-              return `<Cell><Data ss:Type="Number">${cell}</Data></Cell>`
-            }
-            return `<Cell><Data ss:Type="String">${xmlEscape(String(cell))}</Data></Cell>`
+            const value = String(cell)
+            // Escape quotes and wrap in quotes if contains comma, newline, or quotes
+            const needsQuotes = value.includes(',') || value.includes('\n') || value.includes('"')
+            const escaped = value.replace(/"/g, '""')
+            return needsQuotes ? `"${escaped}"` : escaped
           })
-          .join('')
-        return `<Row>${cells}</Row>`
+          .join(',')
       })
-      .join('')
-    const workbook = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
- <Worksheet ss:Name="BOQ">
-  <Table>${xmlRows}</Table>
- </Worksheet>
-</Workbook>`
+      .join('\n')
 
-    const blob = new Blob([workbook], {
-      type: 'application/vnd.ms-excel;charset=utf-8',
+    const blob = new Blob([csvContent], {
+      type: 'text/csv;charset=utf-8',
     })
     const url = window.URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${filenameSafe(activeBoq.name) || 'boq'}.xls`
+    link.download = `${filenameSafe(activeBoq.name) || 'boq'}.csv`
     document.body.append(link)
     link.click()
     link.remove()
@@ -974,7 +966,7 @@ export function BoqWorkspace({
                 disabled={activeBoq.lines.length === 0}
                 className="whitespace-nowrap rounded-full border border-[rgba(109,91,81,0.18)] bg-white/60 px-3 py-1.5 text-sm font-medium text-tremor-content-strong transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Export Excel
+                Export CSV
               </button>
             </div>
           </div>
@@ -1173,6 +1165,30 @@ export function BoqWorkspace({
             Go to Catalog, drag items into rooms — they will appear here organised by floor and room.
           </Text>
         </div>
+      )}
+
+      {confirmationState && (
+        <ConfirmationModal
+          isOpen={confirmationState.type === 'room'}
+          title="Remove Room"
+          message={`Are you sure you want to remove the room "${confirmationState.name}"?`}
+          confirmLabel="Remove"
+          onConfirm={confirmRemoveRoom}
+          onCancel={() => setConfirmationState(null)}
+          isDangerous
+        />
+      )}
+
+      {confirmationState && (
+        <ConfirmationModal
+          isOpen={confirmationState.type === 'floor'}
+          title="Remove Floor"
+          message={`Are you sure you want to remove the floor "${confirmationState.name}" and all its rooms?`}
+          confirmLabel="Remove"
+          onConfirm={confirmRemoveFloor}
+          onCancel={() => setConfirmationState(null)}
+          isDangerous
+        />
       )}
     </div>
   )

@@ -47,14 +47,14 @@ import {
   removeRoomFromState,
   removeFloorFromState,
   removeItemFromRoomByRoomState,
-  readRoomPlannerState,
   roomItemCount,
   writeRoomPlannerState,
-  DEFAULT_ROOM_PLANNER_STATE,
   type RoomPlannerState,
 } from './room-planner-storage'
 import { RoomPlannerSidebar } from './room-planner-sidebar'
 import { FurnitureDetailModal } from './furniture-detail-modal'
+import { ConfirmationModal } from './confirmation-modal'
+import { useRoomPlanner } from './use-room-planner'
 
 const LONG_TEXT_TRUNCATE = 120
 const TABLE_HEADER_CLASS = '!whitespace-normal break-words align-top'
@@ -287,15 +287,13 @@ export function CatalogTable({
   const [boqs, setBoqs] = useState<Boq[]>([])
   const [activeBoqId, setActiveBoqId] = useState('')
   const [lastAddedSku, setLastAddedSku] = useState<string | null>(null)
-  const [roomPlanner, setRoomPlanner] = useState<RoomPlannerState>(
-    DEFAULT_ROOM_PLANNER_STATE,
-  )
-  const [hasLoadedRoomPlanner, setHasLoadedRoomPlanner] = useState(false)
+  const { roomPlanner, setRoomPlanner, hasLoaded: hasLoadedRoomPlanner } = useRoomPlanner()
   const [selectedRoomIds, setSelectedRoomIds] = useState<Set<string>>(new Set())
   const [dragItemId, setDragItemId] = useState<string | null>(null)
   const [dragRoomId, setDragRoomId] = useState<string | null>(null)
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set())
   const [selectedItemForDetail, setSelectedItemForDetail] = useState<FurnitureItemRow | null>(null)
+  const [confirmationState, setConfirmationState] = useState<{ type: 'floor' | 'room'; id: string; name: string } | null>(null)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     image: 80,
     name: 180,
@@ -483,14 +481,6 @@ export function CatalogTable({
     return () => window.clearTimeout(timer)
   }, [])
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setRoomPlanner(readRoomPlannerState())
-      setHasLoadedRoomPlanner(true)
-    }, 0)
-
-    return () => window.clearTimeout(timer)
-  }, [])
 
   useEffect(() => {
     if (!hasLoadedRoomPlanner) return
@@ -631,19 +621,37 @@ export function CatalogTable({
   }
 
   function removeRoom(roomId: string) {
+    const room = roomPlanner.floors
+      .flatMap((f) => f.rooms)
+      .find((r) => r.id === roomId)
+    if (!room) return
+    setConfirmationState({ type: 'room', id: roomId, name: room.name })
+  }
+
+  function confirmRemoveRoom() {
+    if (!confirmationState || confirmationState.type !== 'room') return
     setRoomPlanner((current) => {
-      const next = removeRoomFromState(current, roomId)
+      const next = removeRoomFromState(current, confirmationState.id)
       writeRoomPlannerState(next)
       return next
     })
+    setConfirmationState(null)
   }
 
   function removeFloor(floorId: string) {
+    const floor = roomPlanner.floors.find((f) => f.id === floorId)
+    if (!floor) return
+    setConfirmationState({ type: 'floor', id: floorId, name: floor.name })
+  }
+
+  function confirmRemoveFloor() {
+    if (!confirmationState || confirmationState.type !== 'floor') return
     setRoomPlanner((current) => {
-      const next = removeFloorFromState(current, floorId)
+      const next = removeFloorFromState(current, confirmationState.id)
       writeRoomPlannerState(next)
       return next
     })
+    setConfirmationState(null)
   }
 
   function removeItemFromRoom(roomId: string, itemId: string) {
@@ -928,16 +936,15 @@ export function CatalogTable({
                     }}
                     onDragEnd={endRoomItemDrag}
                     className={
-                      'dashboard-panel overflow-hidden p-4 cursor-pointer hover:shadow-md transition-shadow ' +
+                      'dashboard-panel overflow-hidden p-4 hover:shadow-md transition-shadow ' +
                       (index % 2 === 0
                         ? 'bg-[rgba(247,241,234,0.95)]'
                         : 'bg-[rgba(239,231,220,0.95)]') +
                       (showRoomPlanner ? ' active:cursor-grabbing' : '') +
                       (dragItemId === item.id ? ' opacity-70' : '')
                     }
-                    onClick={() => setSelectedItemForDetail(item)}
                   >
-                    <div className="mb-4 aspect-[4/3] overflow-hidden rounded-[18px] border border-[rgba(109,91,81,0.12)] bg-white/50 pointer-events-none">
+                    <div className="mb-4 aspect-[4/3] overflow-hidden rounded-[18px] border border-[rgba(109,91,81,0.12)] bg-white/50 cursor-pointer hover:opacity-80" onClick={() => setSelectedItemForDetail(item)}>
                       <ImageCarousel
                         alt={imageAlt}
                         urls={urls}
@@ -947,7 +954,7 @@ export function CatalogTable({
                         }
                       />
                     </div>
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start justify-between gap-3 cursor-pointer hover:opacity-80" onClick={() => setSelectedItemForDetail(item)}>
                       <div className="min-w-0">
                         <p className="truncate font-mono text-xs text-tremor-content">
                           {item.sku_id ?? '—'}
@@ -1014,7 +1021,10 @@ export function CatalogTable({
                     {showBoqActions || showRoomPlanner ? (
                       <button
                         type="button"
-                        onClick={() => addToBoqAndSelectedRooms(item)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          addToBoqAndSelectedRooms(item)
+                        }}
                         className={`mt-4 w-full rounded-full px-4 py-2 text-sm font-medium transition-colors border border-[rgba(228,60,47,0.22)] bg-white/70 text-tremor-content-strong hover:bg-white disabled:cursor-not-allowed disabled:opacity-40`}
                       >
                         {showRoomPlanner ? addButtonLabel : 'Add to BOQ'}
@@ -1080,7 +1090,7 @@ export function CatalogTable({
                     return (
                       <TableRow
                         key={item.id}
-                        className={`${ROW_BASE_CLASS} cursor-pointer hover:opacity-80`}
+                        className={ROW_BASE_CLASS}
                         draggable={showRoomPlanner}
                         onPointerDown={() => {
                           if (showRoomPlanner) beginRoomItemDrag(item.id)
@@ -1093,11 +1103,11 @@ export function CatalogTable({
                           event.dataTransfer.effectAllowed = 'move'
                         }}
                         onDragEnd={endRoomItemDrag}
-                        onClick={() => setSelectedItemForDetail(item)}
                       >
                         <TableCell
-                          className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} rounded-l-[22px]`}
+                          className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} rounded-l-[22px] cursor-pointer hover:opacity-80`}
                           style={{ width: `${columnWidths.image}px`, minWidth: `${columnWidths.image}px` }}
+                          onClick={() => setSelectedItemForDetail(item)}
                         >
                           <div className="h-14 w-full max-w-16 overflow-hidden rounded-[16px] border border-[rgba(109,91,81,0.12)] bg-white/50">
                             {(() => {
@@ -1126,8 +1136,9 @@ export function CatalogTable({
                           </div>
                         </TableCell>
                         <TableCell
-                          className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone}`}
+                          className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} cursor-pointer hover:opacity-80`}
                           style={{ width: `${columnWidths.name}px`, minWidth: `${columnWidths.name}px` }}
+                          onClick={() => setSelectedItemForDetail(item)}
                         >
                           <div className="space-y-1">
                             <div>
@@ -1211,7 +1222,10 @@ export function CatalogTable({
                           >
                             <button
                               type="button"
-                              onClick={() => addToBoqAndSelectedRooms(item)}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                addToBoqAndSelectedRooms(item)
+                              }}
                               className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition-colors border border-[rgba(228,60,47,0.22)] bg-white/70 text-tremor-content-strong hover:bg-white disabled:cursor-not-allowed disabled:opacity-40`}
                             >
                               {showRoomPlanner ? addButtonLabel : 'Add to BOQ'}
@@ -1232,7 +1246,32 @@ export function CatalogTable({
         item={selectedItemForDetail}
         isOpen={!!selectedItemForDetail}
         onClose={() => setSelectedItemForDetail(null)}
+        onAddToBoq={(item) => addToBoqAndSelectedRooms(item)}
       />
+
+      {confirmationState && (
+        <ConfirmationModal
+          isOpen={confirmationState.type === 'room'}
+          title="Remove Room"
+          message={`Are you sure you want to remove the room "${confirmationState.name}"?`}
+          confirmLabel="Remove"
+          onConfirm={confirmRemoveRoom}
+          onCancel={() => setConfirmationState(null)}
+          isDangerous
+        />
+      )}
+
+      {confirmationState && (
+        <ConfirmationModal
+          isOpen={confirmationState.type === 'floor'}
+          title="Remove Floor"
+          message={`Are you sure you want to remove the floor "${confirmationState.name}" and all its rooms?`}
+          confirmLabel="Remove"
+          onConfirm={confirmRemoveFloor}
+          onCancel={() => setConfirmationState(null)}
+          isDangerous
+        />
+      )}
     </section>
   )
 }
