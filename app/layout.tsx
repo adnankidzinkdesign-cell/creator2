@@ -3,6 +3,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { NavLink } from './_components/nav-link'
+import { ProgressBar } from './_components/progress-bar'
 import logo from '../assets/KIDZINK LOGO RED.png'
 import './globals.css'
 
@@ -60,6 +61,7 @@ export default function RootLayout({
             </div>
           </div>
         </nav>
+        <ProgressBar />
         <main className="w-full flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mx-auto w-full max-w-[1680px]">{children}</div>
         </main>
