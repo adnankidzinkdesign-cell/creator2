@@ -103,6 +103,12 @@ import {
   writeRoomPlannerState,
   assignItemToRoomState,
   removeItemFromRoomState,
+  cloneRoomToState,
+  removeRoomFromState,
+  removeFloorFromState,
+  renameRoomInState,
+  moveRoomToFloor,
+  addFloorToState,
   DEFAULT_ROOM_PLANNER_STATE,
   type RoomPlannerState,
 } from './room-planner-storage'
@@ -510,6 +516,52 @@ export function BoqWorkspace({
     setRoomPlanner((current) => removeItemFromRoomState(current, itemId))
   }
 
+  function cloneRoom(roomId: string) {
+    setRoomPlanner((current) => cloneRoomToState(current, roomId))
+  }
+
+  function removeRoom(roomId: string) {
+    setRoomPlanner((current) => {
+      const next = removeRoomFromState(current, roomId)
+      writeRoomPlannerState(next)
+      return next
+    })
+  }
+
+  function cloneFloor(floorId: string) {
+    setRoomPlanner((current) => {
+      const sourceFloor = current.floors.find((f) => f.id === floorId)
+      if (!sourceFloor) return current
+
+      const newFloorId = crypto.randomUUID()
+      const newRooms = sourceFloor.rooms.map((room) => ({
+        id: crypto.randomUUID(),
+        name: `${room.name} (copy)`,
+        itemIds: [...room.itemIds],
+      }))
+
+      const newFloor = {
+        id: newFloorId,
+        name: `${sourceFloor.name} (copy)`,
+        rooms: newRooms,
+      }
+
+      return {
+        ...current,
+        floors: [...current.floors, newFloor],
+        activeFloorId: newFloorId,
+      }
+    })
+  }
+
+  function removeFloor(floorId: string) {
+    setRoomPlanner((current) => {
+      const next = removeFloorFromState(current, floorId)
+      writeRoomPlannerState(next)
+      return next
+    })
+  }
+
   function importRoomItems() {
     if (!activeBoqId) return
     const existingIds = new Set(activeBoq?.lines.map((l) => l.itemId) ?? [])
@@ -649,14 +701,27 @@ export function BoqWorkspace({
         <TableCell className={`!whitespace-normal break-words align-top text-tremor-content text-right tabular-nums ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.total}px`, minWidth: `${columnWidths.total}px` }}>
           {formatPrice((price ?? 0) * line.quantity, activeCurrency)}
         </TableCell>
-        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content text-right ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.action}px`, minWidth: `${columnWidths.action}px` }}>
-          <button
-            type="button"
-            onClick={() => duplicateLine(line.itemId)}
-            className="text-sm font-medium text-tremor-content-strong hover:text-[#e43c2f] transition-colors"
-          >
-            {roomPlanner.activeRoomId ? 'Duplicate to Room' : 'Duplicate'}
-          </button>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.action}px`, minWidth: `${columnWidths.action}px` }}>
+          <div className="flex items-center justify-end gap-1">
+            <button
+              type="button"
+              onClick={() => duplicateLine(line.itemId)}
+              className="flex h-5 w-5 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-white/50 hover:text-tremor-content-strong"
+              title="Clone item"
+              aria-label="Clone item"
+            >
+              <span className="text-xs font-bold">⊕</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => removeLine(line.itemId)}
+              className="flex h-5 w-5 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-red-50 hover:text-red-500"
+              title="Remove item"
+              aria-label="Remove item"
+            >
+              <span className="text-xs">✕</span>
+            </button>
+          </div>
         </TableCell>
       </TableRow>
     )
@@ -977,11 +1042,35 @@ export function BoqWorkspace({
                                 colSpan={COLS}
                                 className="rounded-[22px] bg-[rgba(46,45,44,0.08)] px-5 py-3 text-sm font-semibold text-tremor-content-strong"
                               >
-                                {floor.floorName}
-                                <span className="ml-3 text-xs font-normal text-tremor-content">
-                                  {floorItemCount} item{floorItemCount !== 1 ? 's' : ''}{' '}
-                                  &middot; {formatPrice(floorTotal, activeCurrency)}
-                                </span>
+                                <div className="flex items-center justify-between gap-2">
+                                  <div>
+                                    {floor.floorName}
+                                    <span className="ml-3 text-xs font-normal text-tremor-content">
+                                      {floorItemCount} item{floorItemCount !== 1 ? 's' : ''}{' '}
+                                      &middot; {formatPrice(floorTotal, activeCurrency)}
+                                    </span>
+                                  </div>
+                                  <div className="flex shrink-0 items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); cloneFloor(floor.floorId) }}
+                                      className="flex h-6 w-6 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-white/50 hover:text-tremor-content-strong"
+                                      title="Clone floor"
+                                      aria-label="Clone floor"
+                                    >
+                                      <span className="text-xs font-bold">⊕</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); removeFloor(floor.floorId) }}
+                                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-red-50 hover:text-red-500"
+                                      title="Remove floor"
+                                      aria-label="Remove floor"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                </div>
                               </TableCell>
                             </TableRow>
                             {floor.rooms.map((room) => {
@@ -1003,16 +1092,40 @@ export function BoqWorkspace({
                                       }`}
                                       {...roomDropHandlers(room.roomId)}
                                     >
-                                      <span className="ml-3">{room.roomName}</span>
-                                      <span className="ml-3 text-xs font-normal text-tremor-content">
-                                        {room.lines.length} item{room.lines.length !== 1 ? 's' : ''}{' '}
-                                        &middot; {formatPrice(roomTotal, activeCurrency)}
-                                      </span>
-                                      {dragOverRoomId === room.roomId && (
-                                        <span className="ml-3 text-xs font-normal text-[#e43c2f]">
-                                          ↓ Drop here to move
-                                        </span>
-                                      )}
+                                      <div className="flex items-center justify-between gap-2">
+                                        <div className="flex-1">
+                                          <span className="ml-3">{room.roomName}</span>
+                                          <span className="ml-3 text-xs font-normal text-tremor-content">
+                                            {room.lines.length} item{room.lines.length !== 1 ? 's' : ''}{' '}
+                                            &middot; {formatPrice(roomTotal, activeCurrency)}
+                                          </span>
+                                          {dragOverRoomId === room.roomId && (
+                                            <span className="ml-3 text-xs font-normal text-[#e43c2f]">
+                                              ↓ Drop here to move
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="flex shrink-0 items-center gap-1">
+                                          <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); cloneRoom(room.roomId) }}
+                                            className="flex h-5 w-5 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-white/50 hover:text-tremor-content-strong"
+                                            title="Clone room"
+                                            aria-label="Clone room"
+                                          >
+                                            <span className="text-xs font-bold">⊕</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); removeRoom(room.roomId) }}
+                                            className="flex h-5 w-5 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-red-50 hover:text-red-500"
+                                            title="Remove room"
+                                            aria-label="Remove room"
+                                          >
+                                            <span className="text-xs">✕</span>
+                                          </button>
+                                        </div>
+                                      </div>
                                     </TableCell>
                                   </TableRow>
                                   {room.lines.map((line, index) =>

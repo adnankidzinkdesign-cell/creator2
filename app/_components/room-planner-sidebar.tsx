@@ -20,6 +20,10 @@ export function RoomPlannerSidebar({
   draggedItemStorageKey,
   roomItemsById,
   roomItemCountById,
+  unassignedItems,
+  onBeginItemDrag,
+  onEndItemDrag,
+  onRemoveFromBoq,
   onAddFloor,
   onAddRoom,
   onSelectFloor,
@@ -27,6 +31,7 @@ export function RoomPlannerSidebar({
   onDragRoom,
   onDropItem,
   onCloneRoom,
+  onCloneFloor,
   onRenameRoom,
   onMoveRoom,
   onRemoveRoom,
@@ -42,6 +47,10 @@ export function RoomPlannerSidebar({
   draggedItemStorageKey: string
   roomItemsById: Record<string, RoomItem[]>
   roomItemCountById: Record<string, number>
+  unassignedItems: RoomItem[]
+  onBeginItemDrag: (itemId: string) => void
+  onEndItemDrag: () => void
+  onRemoveFromBoq?: (itemId: string) => void
   onAddFloor: (name: string) => void
   onAddRoom: (floorId: string, name: string) => void
   onSelectFloor: (floorId: string) => void
@@ -49,6 +58,7 @@ export function RoomPlannerSidebar({
   onDragRoom: (roomId: string | null) => void
   onDropItem: (roomId: string, itemId: string) => void
   onCloneRoom?: (roomId: string) => void
+  onCloneFloor?: (floorId: string) => void
   onRenameRoom?: (roomId: string, newName: string) => void
   onMoveRoom?: (roomId: string, targetFloorId: string) => void
   onRemoveRoom?: (roomId: string) => void
@@ -187,17 +197,30 @@ export function RoomPlannerSidebar({
                       </div>
                     </div>
                   </button>
-                  {onRemoveFloor && (
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); onRemoveFloor(floor.id) }}
-                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-red-50 hover:text-red-500"
-                      title="Remove floor"
-                      aria-label="Remove floor"
-                    >
-                      ✕
-                    </button>
-                  )}
+                  <div className="flex items-center gap-1">
+                    {onCloneFloor && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onCloneFloor(floor.id) }}
+                        className="flex h-6 w-6 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-white/50 hover:text-tremor-content-strong"
+                        title="Clone floor"
+                        aria-label="Clone floor"
+                      >
+                        <span className="text-xs font-bold">⊕</span>
+                      </button>
+                    )}
+                    {onRemoveFloor && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onRemoveFloor(floor.id) }}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-tremor-content-subtle transition-colors hover:bg-red-50 hover:text-red-500"
+                        title="Remove floor"
+                        aria-label="Remove floor"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {!isCollapsed && (
@@ -413,6 +436,51 @@ export function RoomPlannerSidebar({
           })}
         </div>
       )}
+
+      {unassignedItems.length > 0 ? (
+        <div className="rounded-[22px] border border-[rgba(109,91,81,0.14)] bg-white/45 p-3">
+          <div className="mb-2 flex items-baseline gap-2">
+            <span className="text-sm font-semibold text-tremor-content-strong">
+              Unassigned
+            </span>
+            <span className="text-xs text-tremor-content-subtle">
+              {unassignedItems.length} in BOQ, no room
+            </span>
+          </div>
+          <div className="space-y-1">
+            {unassignedItems.map((item) => (
+              <div
+                key={item.id}
+                draggable
+                onDragStart={(event) => {
+                  onBeginItemDrag(item.id)
+                  event.dataTransfer.effectAllowed = 'move'
+                  event.dataTransfer.setData('text/plain', item.id)
+                  event.dataTransfer.setData('application/x-kidzink-item-id', item.id)
+                }}
+                onDragEnd={() => onEndItemDrag()}
+                className="group flex cursor-move items-center justify-between gap-2 rounded-[14px] border border-[rgba(109,91,81,0.12)] bg-white/70 px-3 py-2 text-xs text-tremor-content transition-colors hover:bg-white"
+              >
+                <span className="truncate">{item.label}</span>
+                {onRemoveFromBoq ? (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveFromBoq(item.id)}
+                    className="invisible shrink-0 leading-none text-tremor-content-subtle transition-colors hover:text-red-500 group-hover:visible"
+                    title="Remove from BOQ"
+                    aria-label="Remove from BOQ"
+                  >
+                    ✕
+                  </button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+          <Text className="mt-2 text-xs text-tremor-content-subtle">
+            Drag onto a room to place it.
+          </Text>
+        </div>
+      ) : null}
     </aside>
   )
 }

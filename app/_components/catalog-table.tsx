@@ -33,6 +33,7 @@ import { cleanDescription } from '@/lib/zoho/parse'
 import {
   addItemToStoredBoq,
   readBoqState,
+  writeBoqState,
   type Boq,
 } from './boq-storage'
 import {
@@ -53,6 +54,7 @@ import {
   type RoomPlannerState,
 } from './room-planner-storage'
 import { RoomPlannerSidebar } from './room-planner-sidebar'
+import { FurnitureDetailModal } from './furniture-detail-modal'
 
 const LONG_TEXT_TRUNCATE = 120
 const TABLE_HEADER_CLASS = '!whitespace-normal break-words align-top'
@@ -293,6 +295,7 @@ export function CatalogTable({
   const [dragItemId, setDragItemId] = useState<string | null>(null)
   const [dragRoomId, setDragRoomId] = useState<string | null>(null)
   const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(new Set())
+  const [selectedItemForDetail, setSelectedItemForDetail] = useState<FurnitureItemRow | null>(null)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     image: 80,
     name: 180,
@@ -443,6 +446,26 @@ export function CatalogTable({
     return ids
   }, [roomPlanner])
 
+  // BOQ items that aren't placed in any room — shown in the sidebar's
+  // "Unassigned" bucket so they're visible on the catalog page too (mirrors
+  // the BOQ page's Unassigned section).
+  const unassignedBoqItems = useMemo(() => {
+    if (!activeBoq) return []
+    return activeBoq.lines
+      .filter((line) => !itemLocationById.has(line.itemId))
+      .map((line) => {
+        const item = itemById.get(line.itemId)
+        return {
+          id: line.itemId,
+          label: item
+            ? item.furniture_item_name ??
+              item.sku_id ??
+              categoryDisplay(item.category, item.subcategory)
+            : line.itemId,
+        }
+      })
+  }, [activeBoq, itemById, itemLocationById])
+
   // Only count selections that still point at a real room (rooms can be deleted
   // after being selected). This drives both the button label and the assignment.
   const validSelectedRoomIds = useMemo(
@@ -536,15 +559,67 @@ export function CatalogTable({
 
   function assignItemToActiveRoom(itemId: string, roomId: string) {
     setRoomPlanner((current) => assignItemToRoomState(current, itemId, roomId))
-    // Assigning to a room also adds to the active BOQ (one action, not two)
-    const boqState = addItemToStoredBoq(itemId)
-    setBoqs(boqState.boqs)
-    setActiveBoqId(boqState.activeBoqId)
+    // Ensure the item is in the BOQ exactly once. If it's already there (e.g.
+    // an unassigned item being dragged into a room), just place it — don't
+    // bump the quantity.
+    const state = readBoqState()
+    const alreadyInBoq = state.boqs.some(
+      (boq) =>
+        boq.id === state.activeBoqId &&
+        boq.lines.some((line) => line.itemId === itemId),
+    )
+    if (!alreadyInBoq) {
+      const boqState = addItemToStoredBoq(itemId)
+      setBoqs(boqState.boqs)
+      setActiveBoqId(boqState.activeBoqId)
+    }
     setLastAddedSku(itemById.get(itemId)?.sku_id ?? 'Item')
+  }
+
+  // Removes a line from the active BOQ entirely (used by the Unassigned bucket).
+  function removeFromBoq(itemId: string) {
+    const state = readBoqState()
+    const next = {
+      boqs: state.boqs.map((boq) =>
+        boq.id === state.activeBoqId
+          ? { ...boq, lines: boq.lines.filter((line) => line.itemId !== itemId) }
+          : boq,
+      ),
+      activeBoqId: state.activeBoqId,
+    }
+    writeBoqState(next)
+    setBoqs(next.boqs)
+    setActiveBoqId(next.activeBoqId)
   }
 
   function cloneRoom(roomId: string) {
     setRoomPlanner((current) => cloneRoomToState(current, roomId))
+  }
+
+  function cloneFloor(floorId: string) {
+    setRoomPlanner((current) => {
+      const sourceFloor = current.floors.find((f) => f.id === floorId)
+      if (!sourceFloor) return current
+
+      const newFloorId = crypto.randomUUID()
+      const newRooms = sourceFloor.rooms.map((room) => ({
+        id: crypto.randomUUID(),
+        name: `${room.name} (copy)`,
+        itemIds: [...room.itemIds],
+      }))
+
+      const newFloor = {
+        id: newFloorId,
+        name: `${sourceFloor.name} (copy)`,
+        rooms: newRooms,
+      }
+
+      return {
+        ...current,
+        floors: [...current.floors, newFloor],
+        activeFloorId: newFloorId,
+      }
+    })
   }
 
   function renameRoom(roomId: string, newName: string) {
@@ -793,6 +868,10 @@ export function CatalogTable({
             draggedItemStorageKey={DRAGGED_ROOM_ITEM_STORAGE_KEY}
             roomItemsById={roomItemsById}
             roomItemCountById={roomItemCountById}
+            unassignedItems={unassignedBoqItems}
+            onBeginItemDrag={beginRoomItemDrag}
+            onEndItemDrag={endRoomItemDrag}
+            onRemoveFromBoq={removeFromBoq}
             onAddFloor={addFloor}
             onAddRoom={addRoom}
             onSelectFloor={selectFloor}
@@ -800,6 +879,7 @@ export function CatalogTable({
             onDragRoom={setDragRoomId}
             onDropItem={(roomId, itemId) => assignItemToActiveRoom(itemId, roomId)}
             onCloneRoom={cloneRoom}
+            onCloneFloor={cloneFloor}
             onRenameRoom={renameRoom}
             onMoveRoom={moveRoom}
             onRemoveRoom={removeRoom}
@@ -848,15 +928,16 @@ export function CatalogTable({
                     }}
                     onDragEnd={endRoomItemDrag}
                     className={
-                      'dashboard-panel overflow-hidden p-4 ' +
+                      'dashboard-panel overflow-hidden p-4 cursor-pointer hover:shadow-md transition-shadow ' +
                       (index % 2 === 0
                         ? 'bg-[rgba(247,241,234,0.95)]'
                         : 'bg-[rgba(239,231,220,0.95)]') +
-                      (showRoomPlanner ? ' cursor-grab active:cursor-grabbing' : '') +
+                      (showRoomPlanner ? ' active:cursor-grabbing' : '') +
                       (dragItemId === item.id ? ' opacity-70' : '')
                     }
+                    onClick={() => setSelectedItemForDetail(item)}
                   >
-                    <div className="mb-4 aspect-[4/3] overflow-hidden rounded-[18px] border border-[rgba(109,91,81,0.12)] bg-white/50">
+                    <div className="mb-4 aspect-[4/3] overflow-hidden rounded-[18px] border border-[rgba(109,91,81,0.12)] bg-white/50 pointer-events-none">
                       <ImageCarousel
                         alt={imageAlt}
                         urls={urls}
@@ -999,7 +1080,7 @@ export function CatalogTable({
                     return (
                       <TableRow
                         key={item.id}
-                        className={ROW_BASE_CLASS}
+                        className={`${ROW_BASE_CLASS} cursor-pointer hover:opacity-80`}
                         draggable={showRoomPlanner}
                         onPointerDown={() => {
                           if (showRoomPlanner) beginRoomItemDrag(item.id)
@@ -1012,6 +1093,7 @@ export function CatalogTable({
                           event.dataTransfer.effectAllowed = 'move'
                         }}
                         onDragEnd={endRoomItemDrag}
+                        onClick={() => setSelectedItemForDetail(item)}
                       >
                         <TableCell
                           className={`${TABLE_CELL_CLASS} ${ROW_CELL_BASE_CLASS} ${rowTone} rounded-l-[22px]`}
@@ -1145,6 +1227,12 @@ export function CatalogTable({
           )}
         </div>
       </div>
+
+      <FurnitureDetailModal
+        item={selectedItemForDetail}
+        isOpen={!!selectedItemForDetail}
+        onClose={() => setSelectedItemForDetail(null)}
+      />
     </section>
   )
 }
