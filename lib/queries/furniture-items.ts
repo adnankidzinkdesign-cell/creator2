@@ -1,6 +1,7 @@
 import 'server-only'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { FurnitureItemRow } from '@/lib/zoho/mappers/furniture-items'
+import { multiLookupDisplays } from '@/lib/zoho/parse'
 
 export type FurnitureItemStats = {
   total_count: number
@@ -21,6 +22,18 @@ export type LatestSyncInfo = {
 
 const REPORT_NAME = 'Furniture_Items_List_Report'
 
+function normalizeFurnitureItemRow(row: FurnitureItemRow): FurnitureItemRow {
+  const suitableSpaces = multiLookupDisplays(row.suitable_spaces)
+  return {
+    ...row,
+    suitable_spaces:
+      suitableSpaces.length > 0
+        ? suitableSpaces
+        : multiLookupDisplays(row.raw?.Suitable_Spaces),
+    finishes: multiLookupDisplays(row.finishes),
+  }
+}
+
 export async function getFurnitureItems(): Promise<FurnitureItemRow[]> {
   const supabase = createAdminClient()
   const { data, error } = await supabase
@@ -30,7 +43,7 @@ export async function getFurnitureItems(): Promise<FurnitureItemRow[]> {
   if (error) {
     throw new Error(`Failed to load furniture items: ${error.message}`)
   }
-  return (data ?? []) as unknown as FurnitureItemRow[]
+  return ((data ?? []) as unknown as FurnitureItemRow[]).map(normalizeFurnitureItemRow)
 }
 
 /**

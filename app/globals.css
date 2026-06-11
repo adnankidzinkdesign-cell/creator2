@@ -137,6 +137,10 @@ body {
   box-shadow: var(--shadow-elevated);
 }
 
+.catalog-flat-panel {
+  box-shadow: none;
+}
+
 .dashboard-header-label {
   color: #6a5d53;
   font-size: 0.72rem;

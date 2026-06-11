@@ -100,20 +100,33 @@ export function lookupId(v: unknown): string | null {
   return parseString(v.ID ?? v.id)
 }
 
+function splitDisplayValue(value: string): string[] {
+  return value
+    .split(/[;,]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
 /**
- * For multi-lookup fields (arrays of lookup objects, e.g. `Suitable_Spaces`),
- * returns the display values of each entry, dropping any that are missing.
- *
- * Non-array input → []. Inner non-objects are skipped.
+ * For multi-lookup fields, returns clean display values, dropping missing
+ * entries. Zoho may return arrays of lookup objects, arrays of strings, or a
+ * single comma/semicolon-separated string depending on the source/report.
  */
 export function multiLookupDisplays(v: unknown): string[] {
-  if (!Array.isArray(v)) return []
   const out: string[] = []
-  for (const entry of v) {
+
+  const entries = Array.isArray(v) ? v : [v]
+  for (const entry of entries) {
+    if (typeof entry === 'string') {
+      out.push(...splitDisplayValue(entry))
+      continue
+    }
+
     const display = lookupDisplay(entry)
-    if (display !== null) out.push(display)
+    if (display !== null) out.push(...splitDisplayValue(display))
   }
-  return out
+
+  return [...new Set(out)]
 }
 
 /**

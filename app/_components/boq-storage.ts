@@ -2,7 +2,7 @@ export const BOQ_STORAGE_KEY = 'kidzink-boqs'
 export const ACTIVE_BOQ_STORAGE_KEY = 'kidzink-active-boq'
 
 export type BoqCurrency = 'AED' | 'SAR'
-export type BoqLine = { itemId: string; quantity: number }
+export type BoqLine = { itemId: string; quantity: number; discount?: number; comment?: string }
 export type Boq = {
   id: string
   name: string
@@ -49,7 +49,8 @@ export function writeBoqState(state: BoqState) {
   }
 }
 
-export function addItemToStoredBoq(itemId: string): BoqState {
+export function addItemToStoredBoq(itemId: string, quantity = 1): BoqState {
+  const addQuantity = Math.max(1, Math.floor(quantity || 1))
   const current = readBoqState()
   const activeBoqId = current.activeBoqId || current.boqs[0]?.id || crypto.randomUUID()
   const hasActiveBoq = current.boqs.some((boq) => boq.id === activeBoqId)
@@ -69,13 +70,13 @@ export function addItemToStoredBoq(itemId: string): BoqState {
         ...boq,
         lines: boq.lines.map((line) =>
           line.itemId === itemId
-            ? { ...line, quantity: line.quantity + 1 }
+            ? { ...line, quantity: line.quantity + addQuantity }
             : line,
         ),
       }
     }
 
-    return { ...boq, lines: [...boq.lines, { itemId, quantity: 1 }] }
+    return { ...boq, lines: [...boq.lines, { itemId, quantity: addQuantity }] }
   })
 
   const nextState: BoqState = { boqs: nextBoqs, activeBoqId }

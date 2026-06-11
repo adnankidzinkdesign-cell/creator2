@@ -8,89 +8,28 @@ import {
   TableBody,
   TableCell,
   TableHead,
-  TableHeaderCell,
   TableRow,
   Text,
   TextInput,
 } from '@tremor/react'
+import { jsPDF } from 'jspdf'
 import { ConfirmationModal } from './confirmation-modal'
-
-function ResizableHeaderCell({
-  children,
-  columnKey,
-  width,
-  onResizeStart,
-}: {
-  children: React.ReactNode
-  columnKey: string
-  width: number
-  onResizeStart: (column: string, startX: number) => void
-}) {
-  const [showTooltip, setShowTooltip] = useState(false)
-
-  return (
-    <TableHeaderCell
-      className="relative select-none"
-      style={{
-        width: `${width}px`,
-        minWidth: `${width}px`,
-        position: 'relative',
-        borderRight: '1px solid #d4c5b9',
-        backgroundColor: '#e8ddd3',
-        color: '#5c4033',
-        fontWeight: '600',
-      }}
-      onMouseLeave={() => setShowTooltip(false)}
-    >
-      <div className="flex items-center justify-between w-full h-full px-4 py-3">
-        <span className="flex-1 truncate">{children}</span>
-
-        {showTooltip && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: '-28px',
-              right: '0',
-              padding: '4px 8px',
-              backgroundColor: '#1f2937',
-              color: 'white',
-              fontSize: '12px',
-              borderRadius: '4px',
-              whiteSpace: 'nowrap',
-              pointerEvents: 'none',
-              zIndex: 50,
-            }}
-          >
-            Drag to resize
-          </div>
-        )}
-
-        <div
-          onMouseDown={(e) => {
-            e.preventDefault()
-            onResizeStart(columnKey, e.clientX)
-          }}
-          onMouseEnter={() => setShowTooltip(true)}
-          onMouseLeave={() => setShowTooltip(false)}
-          style={{
-            position: 'absolute',
-            right: '-4px',
-            top: '0',
-            bottom: '0',
-            width: '8px',
-            cursor: 'col-resize',
-            userSelect: 'none',
-          }}
-          className="bg-[#d4c5b9] hover:bg-[#8b7355] opacity-0 hover:opacity-100 transition-opacity"
-        />
-      </div>
-    </TableHeaderCell>
-  )
-}
+import { ResizableHeaderCell } from './resizable-header-cell'
 import type { CrmDealOption } from '@/lib/queries/crm-deals'
 import type { FurnitureItemRow } from '@/lib/zoho/mappers/furniture-items'
 import { formatDimensions, formatNumber, formatPrice } from '@/lib/format'
-import { categoryDisplay, truncate } from './catalog-utils'
+import {
+  ALL_VALUE,
+  ITEM_TYPE_OPTIONS,
+  categoryDisplay,
+  displayValues,
+  itemTypeValue,
+  normalizeSearch,
+  searchTokens,
+  searchableText,
+  truncate,
+  unique,
+} from './catalog-utils'
 import { cleanDescription } from '@/lib/zoho/parse'
 import {
   readBoqState,
@@ -156,7 +95,7 @@ function itemPrice(item: FurnitureItemRow, currency: BoqCurrency): number | null
   return currency === 'SAR' ? item.retail_price_sar : item.retail_price_aed
 }
 
-const COLS = 10
+const COLS = 12
 
 export function BoqWorkspace({
   items,
@@ -185,12 +124,22 @@ export function BoqWorkspace({
     dimensions: 100,
     unitPrice: 110,
     qty: 70,
-    total: 110,
+    discount: 90,
+    total: 120,
+    comment: 160,
     action: 80,
   })
   const autoCreatedBoqRef = useRef(false)
   const resizeRef = useRef<{ column: string; startX: number; startWidth: number } | null>(null)
   const [confirmationState, setConfirmationState] = useState<{ type: 'floor' | 'room'; id: string; name: string } | null>(null)
+  const [boqQuery, setBoqQuery] = useState('')
+  const [boqCategory, setBoqCategory] = useState(ALL_VALUE)
+  const [boqSubcategory, setBoqSubcategory] = useState(ALL_VALUE)
+  const [boqItemType, setBoqItemType] = useState(ALL_VALUE)
+  const [boqAgeRange, setBoqAgeRange] = useState(ALL_VALUE)
+  const [boqSuitableSpace, setBoqSuitableSpace] = useState(ALL_VALUE)
+  const [isBulkEditOpen, setIsBulkEditOpen] = useState(false)
+  const [bulkDiscountInput, setBulkDiscountInput] = useState('')
 
   const itemById = useMemo(
     () => new Map(items.map((item) => [item.id, item])),
@@ -307,6 +256,70 @@ export function BoqWorkspace({
 
     return { floors, unassigned, hasRooms: floors.length > 0 }
   }, [activeBoq, roomPlanner])
+
+  const boqItems = useMemo(() => {
+    if (!activeBoq) return []
+    return activeBoq.lines.flatMap((l) => {
+      const item = itemById.get(l.itemId)
+      return item ? [item] : []
+    })
+  }, [activeBoq, itemById])
+
+  const boqCategories = useMemo(() => unique(boqItems.map((i) => i.category)), [boqItems])
+  const boqSubcategories = useMemo(
+    () => unique(boqItems.filter((i) => boqCategory === ALL_VALUE || i.category === boqCategory).map((i) => i.subcategory)),
+    [boqItems, boqCategory],
+  )
+  const boqAgeRanges = useMemo(() => unique(boqItems.map((i) => i.age_range)), [boqItems])
+  const boqSuitableSpaces = useMemo(
+    () => unique(boqItems.flatMap((i) => displayValues(i.suitable_spaces))),
+    [boqItems],
+  )
+
+  const hasActiveBoqFilters =
+    boqQuery.trim() ||
+    boqCategory !== ALL_VALUE ||
+    boqSubcategory !== ALL_VALUE ||
+    boqItemType !== ALL_VALUE ||
+    boqAgeRange !== ALL_VALUE ||
+    boqSuitableSpace !== ALL_VALUE
+
+  const filteredGroupedLines = useMemo(() => {
+    if (!groupedLines) return null
+    if (!hasActiveBoqFilters) return groupedLines
+
+    const tokens = searchTokens(boqQuery)
+
+    function matches(line: { itemId: string }): boolean {
+      const item = itemById.get(line.itemId)
+      if (!item) return false
+      if (boqCategory !== ALL_VALUE && item.category !== boqCategory) return false
+      if (boqSubcategory !== ALL_VALUE && item.subcategory !== boqSubcategory) return false
+      if (boqItemType !== ALL_VALUE && itemTypeValue(item) !== boqItemType) return false
+      if (boqAgeRange !== ALL_VALUE && item.age_range !== boqAgeRange) return false
+      if (boqSuitableSpace !== ALL_VALUE && !displayValues(item.suitable_spaces).includes(boqSuitableSpace)) return false
+      if (tokens.length > 0) {
+        const text = normalizeSearch(searchableText(item))
+        if (!tokens.every((t) => text.includes(t))) return false
+      }
+      return true
+    }
+
+    const floors = groupedLines.floors
+      .map((floor) => ({
+        ...floor,
+        rooms: floor.rooms
+          .map((room) => ({ ...room, lines: room.lines.filter(matches) }))
+          .filter((room) => room.lines.length > 0),
+      }))
+      .filter((floor) => floor.rooms.length > 0)
+
+    return {
+      floors,
+      unassigned: groupedLines.unassigned.filter(matches),
+      hasRooms: floors.length > 0,
+    }
+  }, [groupedLines, hasActiveBoqFilters, boqQuery, boqCategory, boqSubcategory, boqItemType, boqAgeRange, boqSuitableSpace, itemById])
 
   const hasAnyRooms = useMemo(
     () => roomPlanner.floors.some((f) => f.rooms.length > 0),
@@ -428,6 +441,62 @@ export function BoqWorkspace({
               ...boq,
               lines: boq.lines.map((line) =>
                 line.itemId === itemId ? { ...line, quantity: nextQuantity } : line,
+              ),
+            }
+          : boq,
+      ),
+    )
+  }
+
+  function updateLineDiscount(itemId: string, discount: number) {
+    if (!activeBoqId) return
+    setBoqs((current) =>
+      current.map((boq) =>
+        boq.id === activeBoqId
+          ? {
+              ...boq,
+              lines: boq.lines.map((line) =>
+                line.itemId === itemId ? { ...line, discount } : line,
+              ),
+            }
+          : boq,
+      ),
+    )
+  }
+
+  function applyBulkDiscount() {
+    const pct = parseFloat(bulkDiscountInput)
+    if (isNaN(pct) || pct < 0 || pct > 100) return
+    const ids = new Set([
+      ...(filteredGroupedLines?.floors.flatMap((f) => f.rooms.flatMap((r) => r.lines.map((l) => l.itemId))) ?? []),
+      ...(filteredGroupedLines?.unassigned.map((l) => l.itemId) ?? []),
+    ])
+    if (ids.size === 0) return
+    setBoqs((current) =>
+      current.map((boq) =>
+        boq.id === activeBoqId
+          ? {
+              ...boq,
+              lines: boq.lines.map((line) =>
+                ids.has(line.itemId) ? { ...line, discount: pct } : line,
+              ),
+            }
+          : boq,
+      ),
+    )
+    setIsBulkEditOpen(false)
+    setBulkDiscountInput('')
+  }
+
+  function updateLineComment(itemId: string, comment: string) {
+    if (!activeBoqId) return
+    setBoqs((current) =>
+      current.map((boq) =>
+        boq.id === activeBoqId
+          ? {
+              ...boq,
+              lines: boq.lines.map((line) =>
+                line.itemId === itemId ? { ...line, comment } : line,
               ),
             }
           : boq,
@@ -593,7 +662,8 @@ export function BoqWorkspace({
 
   function lineTotal(line: BoqLine): number {
     const item = itemById.get(line.itemId)
-    return (item ? (itemPrice(item, activeCurrency) ?? 0) : 0) * line.quantity
+    const base = (item ? (itemPrice(item, activeCurrency) ?? 0) : 0) * line.quantity
+    return base * (1 - (line.discount ?? 0) / 100)
   }
 
   function renderRoomSelector(itemId: string, location: ReturnType<typeof itemLocationById.get>) {
@@ -707,8 +777,43 @@ export function BoqWorkspace({
             aria-label={`Quantity for ${item.sku_id ?? 'item'}`}
           />
         </TableCell>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content text-right ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.discount}px`, minWidth: `${columnWidths.discount}px` }}>
+          <div className="flex items-center justify-end gap-1">
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={line.discount ?? ''}
+              onChange={(e) => {
+                const v = e.target.value === '' ? 0 : Math.min(100, Math.max(0, Number(e.target.value)))
+                updateLineDiscount(line.itemId, v)
+              }}
+              placeholder="0"
+              className="w-14 rounded-full border border-[rgba(109,91,81,0.18)] bg-white/75 px-2 py-1 text-right text-sm text-tremor-content-strong"
+              aria-label={`Discount for ${item.sku_id ?? 'item'}`}
+            />
+            <span className="text-xs text-tremor-content-subtle">%</span>
+          </div>
+        </TableCell>
         <TableCell className={`!whitespace-normal break-words align-top text-tremor-content text-right tabular-nums ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.total}px`, minWidth: `${columnWidths.total}px` }}>
-          {formatPrice((price ?? 0) * line.quantity, activeCurrency)}
+          {(line.discount ?? 0) > 0 ? (
+            <div className="space-y-0.5">
+              <div className="text-xs text-tremor-content-subtle line-through">{formatPrice((price ?? 0) * line.quantity, activeCurrency)}</div>
+              <div className="font-medium text-[#2a9d5c]">{formatPrice(lineTotal(line), activeCurrency)}</div>
+            </div>
+          ) : (
+            formatPrice(lineTotal(line), activeCurrency)
+          )}
+        </TableCell>
+        <TableCell className={`!whitespace-normal break-words align-top text-tremor-content ${rowTone} px-2 py-2`} style={{ width: `${columnWidths.comment}px`, minWidth: `${columnWidths.comment}px` }}>
+          <textarea
+            value={line.comment ?? ''}
+            onChange={(e) => updateLineComment(line.itemId, e.target.value)}
+            placeholder="Add a comment…"
+            rows={2}
+            className="w-full resize-none rounded-[14px] border border-[rgba(109,91,81,0.18)] bg-white/75 px-2.5 py-1.5 text-xs text-tremor-content-strong placeholder:text-tremor-content-subtle focus:outline-none focus:ring-1 focus:ring-[rgba(228,60,47,0.35)]"
+          />
         </TableCell>
         <TableCell className={`!whitespace-normal break-words align-top text-tremor-content ${rowTone} px-4 py-4`} style={{ width: `${columnWidths.action}px`, minWidth: `${columnWidths.action}px` }}>
           <div className="flex items-center justify-end gap-1">
@@ -837,6 +942,291 @@ export function BoqWorkspace({
     link.click()
     link.remove()
     window.URL.revokeObjectURL(url)
+  }
+
+  async function exportBoqPdf() {
+    if (!activeBoq || activeBoq.lines.length === 0) return
+
+    // Build row data
+    let srNo = 0
+    const rowData: Array<{
+      srNo: number
+      areaName: string
+      refCode: string
+      colorFinish: string
+      description: string
+      dimension: string
+      imageUrl: string | null
+      qty: number
+      unitPrice: number
+      totalPrice: number
+    }> = []
+
+    for (const line of activeBoq.lines) {
+      const item = itemById.get(line.itemId)
+      if (!item) continue
+      srNo++
+      const location = itemLocationById.get(line.itemId)
+      const areaName = location
+        ? `${location.floorName} / ${location.roomName}`
+        : firstRawString(item, ['Floor_Name', 'FloorName', 'Floor'])
+      const colorFinish =
+        firstRawString(item, ['Colour_Finish', 'Color_Finish', 'ColourFinish', 'Colour / Finish', 'Color/Finish']) ||
+        (item.finishes_summary ?? '')
+      const price = itemPrice(item, activeCurrency) ?? 0
+
+      let imageUrl: string | null = null
+      if (item.old_code) {
+        imageUrl = `/product-images/${encodeURIComponent(item.old_code)}.png`
+      } else if (item.image_urls?.length) {
+        imageUrl = item.image_urls[0]
+      } else if (item.image_url) {
+        imageUrl = item.image_url
+      } else {
+        const singleImage = typeof item.raw['Image'] === 'string' && item.raw['Image'].trim() ? item.raw['Image'] : null
+        if (singleImage) {
+          imageUrl = `/api/zoho-image?path=${encodeURIComponent(singleImage)}`
+        } else if (Array.isArray(item.raw['Image1']) && (item.raw['Image1'] as unknown[]).length > 0) {
+          const first = (item.raw['Image1'] as unknown[])[0]
+          if (typeof first === 'string' && first.trim()) {
+            imageUrl = `/api/zoho-image?path=${encodeURIComponent(first)}`
+          }
+        }
+      }
+
+      rowData.push({
+        srNo,
+        areaName,
+        refCode: item.sku_id ?? '',
+        colorFinish,
+        description: item.furniture_item_name || categoryDisplay(item.category, item.subcategory),
+        dimension: formatDimensions(item.length_mm, item.height_mm, item.depth_mm),
+        imageUrl,
+        qty: line.quantity,
+        unitPrice: price,
+        totalPrice: price * line.quantity,
+      })
+    }
+
+    // Load images concurrently
+    const imageCache = new Map<string, string>()
+    await Promise.allSettled(
+      [...new Set(rowData.map((r) => r.imageUrl).filter(Boolean))].map(async (url) => {
+        try {
+          const res = await fetch(url!)
+          if (!res.ok) return
+          const blob = await res.blob()
+          const b64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve(reader.result as string)
+            reader.onerror = reject
+            reader.readAsDataURL(blob)
+          })
+          imageCache.set(url!, b64)
+        } catch { /* skip */ }
+      }),
+    )
+
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+    const PW = pdf.internal.pageSize.getWidth()   // 297
+    const PH = pdf.internal.pageSize.getHeight()  // 210
+    const MX = 10
+    const MY = 10
+    const TW = PW - MX * 2  // 277
+
+    const HDR_H = 14
+    const ROW_H = 35
+
+    // Columns — widths sum to 277
+    const COLS = [
+      { label: 'SR. NO',                       w: 12, align: 'center' as const },
+      { label: 'AREA NAME',                    w: 28, align: 'left'   as const },
+      { label: 'REF CODE',                     w: 22, align: 'left'   as const },
+      { label: 'COLOR/FINISH',                 w: 28, align: 'left'   as const },
+      { label: 'DESCRIPTION',                  w: 57, align: 'left'   as const },
+      { label: 'DIMENSION',                    w: 22, align: 'center' as const },
+      { label: 'IMAGE\n(FOR REFERENCE)',        w: 35, align: 'center' as const },
+      { label: 'QTY',                          w: 12, align: 'center' as const },
+      { label: `UNIT PRICE\n(${activeCurrency})`,  w: 30, align: 'right' as const },
+      { label: `TOTAL PRICE\n(${activeCurrency})`, w: 31, align: 'right' as const },
+    ]
+
+    function colX(i: number) {
+      return MX + COLS.slice(0, i).reduce((s, c) => s + c.w, 0)
+    }
+
+    let y = MY
+
+    // Branding strip
+    pdf.setFillColor(228, 60, 47)
+    pdf.rect(0, 0, PW, 18, 'F')
+    pdf.setTextColor(255, 255, 255)
+    pdf.setFontSize(15)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text('KIDZINK', MX, 12)
+    const projectLabel = activeDeal?.deal_name ?? activeBoq.dealName
+    if (projectLabel) {
+      pdf.setFontSize(9)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(projectLabel.toUpperCase(), PW - MX, 12, { align: 'right' })
+    }
+
+    y = 24
+    pdf.setTextColor(30, 30, 30)
+    pdf.setFontSize(11)
+    pdf.setFont('helvetica', 'bold')
+    pdf.text(activeBoq.name, MX, y)
+    y += 5
+
+    if (activeDeal) {
+      const meta = [activeDeal.account_name, activeDeal.stage, activeDeal.school_group].filter(Boolean).join('  ·  ')
+      if (meta) {
+        pdf.setFontSize(8)
+        pdf.setFont('helvetica', 'normal')
+        pdf.setTextColor(90, 90, 90)
+        pdf.text(meta, MX, y)
+        y += 5
+      }
+    }
+    y += 2
+
+    function drawHeader() {
+      pdf.setFillColor(228, 60, 47)
+      pdf.rect(MX, y, TW, HDR_H, 'F')
+      pdf.setTextColor(255, 255, 255)
+      pdf.setFontSize(7)
+      pdf.setFont('helvetica', 'bold')
+
+      for (let i = 0; i < COLS.length; i++) {
+        const col = COLS[i]
+        const cx = colX(i)
+        const lines = col.label.split('\n')
+        const lh = 3
+        const totalH = lines.length * lh
+        let ty = y + (HDR_H - totalH) / 2 + lh
+        for (const line of lines) {
+          const tx = col.align === 'right' ? cx + col.w - 2 : col.align === 'center' ? cx + col.w / 2 : cx + 2
+          pdf.text(line, tx, ty, { align: col.align })
+          ty += lh
+        }
+        // Column dividers
+        if (i < COLS.length - 1) {
+          pdf.setDrawColor(255, 100, 90)
+          pdf.setLineWidth(0.2)
+          pdf.line(cx + col.w, y, cx + col.w, y + HDR_H)
+        }
+      }
+    }
+
+    function drawRow(row: typeof rowData[0], idx: number) {
+      const even = idx % 2 === 0
+      pdf.setFillColor(even ? 255 : 250, even ? 255 : 245, even ? 255 : 239)
+      pdf.rect(MX, y, TW, ROW_H, 'F')
+
+      pdf.setDrawColor(215, 203, 190)
+      pdf.setLineWidth(0.15)
+      // Bottom border
+      pdf.line(MX, y + ROW_H, MX + TW, y + ROW_H)
+      // Outer left + right
+      pdf.line(MX, y, MX, y + ROW_H)
+      pdf.line(MX + TW, y, MX + TW, y + ROW_H)
+      // Column dividers
+      for (let i = 0; i < COLS.length - 1; i++) {
+        const vx = colX(i + 1)
+        pdf.line(vx, y, vx, y + ROW_H)
+      }
+
+      pdf.setTextColor(30, 30, 30)
+      const pad = 2
+      const midY = y + ROW_H / 2
+
+      // SR. NO
+      pdf.setFontSize(9)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text(String(row.srNo), colX(0) + COLS[0].w / 2, midY, { align: 'center', baseline: 'middle' })
+
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(7.5)
+
+      // AREA NAME
+      const areaLines = pdf.splitTextToSize(row.areaName, COLS[1].w - pad * 2)
+      pdf.text((areaLines as string[]).slice(0, 6), colX(1) + pad, y + pad + 3)
+
+      // REF CODE
+      const refLines = pdf.splitTextToSize(row.refCode, COLS[2].w - pad * 2)
+      pdf.text((refLines as string[]).slice(0, 6), colX(2) + pad, y + pad + 3)
+
+      // COLOR/FINISH
+      const colorLines = pdf.splitTextToSize(row.colorFinish, COLS[3].w - pad * 2)
+      pdf.text((colorLines as string[]).slice(0, 7), colX(3) + pad, y + pad + 3)
+
+      // DESCRIPTION
+      pdf.setFontSize(8)
+      const descLines = pdf.splitTextToSize(row.description, COLS[4].w - pad * 2)
+      pdf.text((descLines as string[]).slice(0, 6), colX(4) + pad, y + pad + 3)
+
+      // DIMENSION
+      pdf.setFontSize(7.5)
+      const dimLines = pdf.splitTextToSize(row.dimension, COLS[5].w - pad * 2)
+      const dimH = (dimLines as string[]).length * 3.5
+      pdf.text(dimLines as string[], colX(5) + COLS[5].w / 2, y + (ROW_H - dimH) / 2 + 3.5, { align: 'center' })
+
+      // IMAGE
+      const imgB64 = row.imageUrl ? imageCache.get(row.imageUrl) : null
+      if (imgB64) {
+        const imgP = 3
+        const fmt = imgB64.startsWith('data:image/png') ? 'PNG' : imgB64.startsWith('data:image/webp') ? 'WEBP' : 'JPEG'
+        try {
+          pdf.addImage(imgB64, fmt, colX(6) + imgP, y + imgP, COLS[6].w - imgP * 2, ROW_H - imgP * 2)
+        } catch { /* skip bad images */ }
+      }
+
+      // QTY
+      pdf.setFontSize(9)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text(String(row.qty), colX(7) + COLS[7].w / 2, midY, { align: 'center', baseline: 'middle' })
+
+      // UNIT PRICE
+      pdf.setFontSize(8)
+      pdf.setFont('helvetica', 'normal')
+      pdf.text(formatPrice(row.unitPrice, activeCurrency), colX(8) + COLS[8].w - pad, midY, { align: 'right', baseline: 'middle' })
+
+      // TOTAL PRICE
+      pdf.setFont('helvetica', 'bold')
+      pdf.text(formatPrice(row.totalPrice, activeCurrency), colX(9) + COLS[9].w - pad, midY, { align: 'right', baseline: 'middle' })
+    }
+
+    // Render
+    drawHeader()
+    y += HDR_H
+
+    for (const [idx, row] of rowData.entries()) {
+      if (y + ROW_H > PH - MY) {
+        pdf.addPage()
+        y = MY
+        drawHeader()
+        y += HDR_H
+      }
+      drawRow(row, idx)
+      y += ROW_H
+    }
+
+    // Grand total row
+    if (y + 12 > PH - MY) {
+      pdf.addPage()
+      y = MY
+    }
+    pdf.setFillColor(245, 238, 228)
+    pdf.rect(MX, y, TW, 12, 'DF')
+    pdf.setDrawColor(180, 163, 145)
+    pdf.setLineWidth(0.3)
+    pdf.setFontSize(9)
+    pdf.setFont('helvetica', 'bold')
+    pdf.setTextColor(30, 30, 30)
+    pdf.text('GRAND TOTAL', MX + 4, y + 7)
+    pdf.text(formatPrice(boqTotal, activeCurrency), MX + TW - 2, y + 7, { align: 'right' })
+
+    pdf.save(`${filenameSafe(activeBoq.name) || 'boq'}.pdf`)
   }
 
   return (
@@ -968,6 +1358,14 @@ export function BoqWorkspace({
               >
                 Export CSV
               </button>
+              <button
+                type="button"
+                onClick={exportBoqPdf}
+                disabled={activeBoq.lines.length === 0}
+                className="whitespace-nowrap rounded-full border border-[rgba(228,60,47,0.22)] bg-white/60 px-3 py-1.5 text-sm font-medium text-tremor-content-strong transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Export PDF
+              </button>
             </div>
           </div>
 
@@ -978,6 +1376,109 @@ export function BoqWorkspace({
               </Text>
             </div>
           ) : (
+            <>
+              <div className="dashboard-panel catalog-flat-panel mb-3 flex flex-wrap items-stretch gap-3 p-3">
+                <div className="min-w-[16rem] flex-[2_1_20rem]">
+                  <TextInput
+                    className="w-full"
+                    value={boqQuery}
+                    onChange={(e) => setBoqQuery(e.target.value)}
+                    onValueChange={setBoqQuery}
+                    placeholder="Search SKU, name, description, finishes..."
+                    aria-label="Search BOQ"
+                  />
+                </div>
+                <div className="min-w-[11rem] flex-1">
+                  <Select className="w-full" value={boqCategory} onValueChange={(v) => { setBoqCategory(v); setBoqSubcategory(ALL_VALUE) }} aria-label="Filter by category">
+                    <SelectItem value={ALL_VALUE}>All categories</SelectItem>
+                    {boqCategories.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                  </Select>
+                </div>
+                <div className="min-w-[11rem] flex-1">
+                  <Select className="w-full" value={boqSubcategory} onValueChange={setBoqSubcategory} aria-label="Filter by subcategory">
+                    <SelectItem value={ALL_VALUE}>All subcategories</SelectItem>
+                    {boqSubcategories.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                  </Select>
+                </div>
+                <div className="min-w-[10rem] flex-1">
+                  <Select className="w-full" value={boqItemType} onValueChange={setBoqItemType} aria-label="Filter by item type">
+                    <SelectItem value={ALL_VALUE}>All item types</SelectItem>
+                    {ITEM_TYPE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                  </Select>
+                </div>
+                <div className="min-w-[10rem] flex-1">
+                  <Select className="w-full" value={boqAgeRange} onValueChange={setBoqAgeRange} aria-label="Filter by age range">
+                    <SelectItem value={ALL_VALUE}>All ages</SelectItem>
+                    {boqAgeRanges.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                  </Select>
+                </div>
+                <div className="min-w-[10rem] flex-1">
+                  <Select className="w-full" value={boqSuitableSpace} onValueChange={setBoqSuitableSpace} aria-label="Filter by suitable space">
+                    <SelectItem value={ALL_VALUE}>All spaces</SelectItem>
+                    {boqSuitableSpaces.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                  </Select>
+                </div>
+                <button
+                  type="button"
+                  disabled={!hasActiveBoqFilters}
+                  onClick={() => { setBoqQuery(''); setBoqCategory(ALL_VALUE); setBoqSubcategory(ALL_VALUE); setBoqItemType(ALL_VALUE); setBoqAgeRange(ALL_VALUE); setBoqSuitableSpace(ALL_VALUE) }}
+                  className="whitespace-nowrap rounded-full border border-[rgba(109,91,81,0.18)] bg-white/60 px-4 py-2 text-sm font-medium text-tremor-content-strong transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setIsBulkEditOpen((v) => !v); setBulkDiscountInput('') }}
+                  className="whitespace-nowrap rounded-full border border-[rgba(228,60,47,0.28)] bg-white/60 px-4 py-2 text-sm font-medium text-tremor-content-strong transition-colors hover:bg-white"
+                >
+                  Bulk Edit
+                </button>
+              </div>
+
+              {isBulkEditOpen && (() => {
+                const filteredCount =
+                  (filteredGroupedLines?.floors.reduce((n, f) => n + f.rooms.reduce((m, r) => m + r.lines.length, 0), 0) ?? 0) +
+                  (filteredGroupedLines?.unassigned.length ?? 0)
+                return (
+                  <div className="dashboard-panel catalog-flat-panel flex flex-wrap items-center gap-3 p-3">
+                    <span className="text-sm text-tremor-content-strong font-medium">Bulk Edit Discount</span>
+                    <span className="text-sm text-tremor-content">
+                      Apply to <strong>{filteredCount}</strong> {hasActiveBoqFilters ? 'filtered' : ''} item{filteredCount !== 1 ? 's' : ''}:
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={bulkDiscountInput}
+                        onChange={(e) => setBulkDiscountInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') applyBulkDiscount() }}
+                        placeholder="0"
+                        autoFocus
+                        className="w-20 rounded-full border border-[rgba(109,91,81,0.18)] bg-white/75 px-3 py-1.5 text-right text-sm text-tremor-content-strong focus:outline-none focus:ring-1 focus:ring-[rgba(228,60,47,0.35)]"
+                      />
+                      <span className="text-sm text-tremor-content-subtle">%</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={applyBulkDiscount}
+                      disabled={bulkDiscountInput === '' || filteredCount === 0}
+                      className="whitespace-nowrap rounded-full bg-[#e43c2f] px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-[#c93226] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Apply to {filteredCount} item{filteredCount !== 1 ? 's' : ''}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsBulkEditOpen(false)}
+                      className="text-sm text-tremor-content-subtle hover:text-tremor-content-strong transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )
+              })()}
+
             <div className="dashboard-table-shell mt-4 overflow-x-auto">
               <Table className="w-full border-separate border-spacing-y-2 text-sm" style={{ minWidth: 'min-content', borderSpacing: '0' }}>
                 <TableHead>
@@ -1006,8 +1507,14 @@ export function BoqWorkspace({
                     <ResizableHeaderCell columnKey="qty" width={columnWidths.qty} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
                       <span className="text-right block">Qty</span>
                     </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="discount" width={columnWidths.discount} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      <span className="text-right block">Discount %</span>
+                    </ResizableHeaderCell>
                     <ResizableHeaderCell columnKey="total" width={columnWidths.total} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
                       <span className="text-right block">Total {activeCurrency}</span>
+                    </ResizableHeaderCell>
+                    <ResizableHeaderCell columnKey="comment" width={columnWidths.comment} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
+                      Comments
                     </ResizableHeaderCell>
                     <ResizableHeaderCell columnKey="action" width={columnWidths.action} onResizeStart={(col, x) => { resizeRef.current = { column: col, startX: x, startWidth: columnWidths[col] } }}>
                       <span className="text-right block">Action</span>
@@ -1015,9 +1522,9 @@ export function BoqWorkspace({
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {groupedLines?.hasRooms ? (
+                  {filteredGroupedLines?.hasRooms ? (
                     <>
-                      {groupedLines.floors.map((floor) => {
+                      {filteredGroupedLines.floors.map((floor) => {
                         const floorTotal = floor.rooms.reduce(
                           (sum, room) =>
                             sum + room.lines.reduce((s, l) => s + lineTotal(l), 0),
@@ -1129,7 +1636,7 @@ export function BoqWorkspace({
                           </Fragment>
                         )
                       })}
-                      {groupedLines.unassigned.length > 0 ? (
+                      {filteredGroupedLines.unassigned.length > 0 ? (
                         <Fragment>
                           <TableRow>
                             <TableCell
@@ -1138,25 +1645,34 @@ export function BoqWorkspace({
                             >
                               Unassigned
                               <span className="ml-3 text-xs font-normal text-tremor-content-subtle">
-                                {groupedLines.unassigned.length} item
-                                {groupedLines.unassigned.length !== 1 ? 's' : ''} not placed in any room
+                                {filteredGroupedLines.unassigned.length} item
+                                {filteredGroupedLines.unassigned.length !== 1 ? 's' : ''} not placed in any room
                               </span>
                             </TableCell>
                           </TableRow>
-                          {groupedLines.unassigned.map((line, index) =>
+                          {filteredGroupedLines.unassigned.map((line, index) =>
                             renderItemRow(line, index),
                           )}
                         </Fragment>
                       ) : null}
                     </>
                   ) : (
-                    activeBoq.lines.map((line, index) =>
-                      renderItemRow(line, index, undefined),
+                    filteredGroupedLines?.unassigned.length === 0 && hasActiveBoqFilters ? (
+                      <TableRow>
+                        <TableCell colSpan={COLS} className="py-10 text-center text-sm text-tremor-content-subtle">
+                          No items match the current filters.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      (filteredGroupedLines?.unassigned ?? activeBoq.lines).map((line, index) =>
+                        renderItemRow(line, index, undefined),
+                      )
                     )
                   )}
                 </TableBody>
               </Table>
             </div>
+            </>
           )}
         </section>
       ) : (

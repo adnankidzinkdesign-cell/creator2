@@ -8,6 +8,7 @@ import type { RoomPlannerFloor } from './room-planner-storage'
 type RoomItem = {
   id: string
   label: string
+  quantity?: number
 }
 
 export function RoomPlannerSidebar({
@@ -37,6 +38,7 @@ export function RoomPlannerSidebar({
   onRemoveRoom,
   onRemoveFloor,
   onRemoveItem,
+  onRenameFloor,
 }: {
   floors: RoomPlannerFloor[]
   activeFloorId: string
@@ -64,14 +66,18 @@ export function RoomPlannerSidebar({
   onRemoveRoom?: (roomId: string) => void
   onRemoveFloor?: (floorId: string) => void
   onRemoveItem?: (roomId: string, itemId: string) => void
+  onRenameFloor?: (floorId: string, newName: string) => void
 }) {
   const [floorName, setFloorName] = useState('')
   const [roomDrafts, setRoomDrafts] = useState<Record<string, string>>({})
   const [collapsedFloors, setCollapsedFloors] = useState<Set<string>>(new Set())
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null)
   const [editingRoomName, setEditingRoomName] = useState('')
+  const [editingFloorId, setEditingFloorId] = useState<string | null>(null)
+  const [editingFloorName, setEditingFloorName] = useState('')
   const [draggedRoomId, setDraggedRoomId] = useState<string | null>(null)
   const [dragOverFloorId, setDragOverFloorId] = useState<string | null>(null)
+  const [editingItemQuantities, setEditingItemQuantities] = useState<Record<string, string>>({})
 
   const totalRooms = useMemo(
     () => floors.reduce((sum, floor) => sum + floor.rooms.length, 0),
@@ -124,8 +130,26 @@ export function RoomPlannerSidebar({
     setEditingRoomName('')
   }
 
+  function startEditFloor(floorId: string, currentName: string) {
+    setEditingFloorId(floorId)
+    setEditingFloorName(currentName)
+  }
+
+  function saveFloorName(floorId: string) {
+    if (onRenameFloor && editingFloorName.trim()) {
+      onRenameFloor(floorId, editingFloorName)
+    }
+    setEditingFloorId(null)
+    setEditingFloorName('')
+  }
+
+  function cancelEditFloor() {
+    setEditingFloorId(null)
+    setEditingFloorName('')
+  }
+
   return (
-    <aside className="dashboard-panel flex h-fit flex-col gap-4 p-4">
+    <aside className="dashboard-panel catalog-flat-panel flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4">
       <div>
         <h2 className="text-lg font-semibold text-tremor-content-strong">
           Floors & Rooms
@@ -189,12 +213,37 @@ export function RoomPlannerSidebar({
                     className="flex flex-1 items-start gap-2 text-left"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold text-tremor-content-strong">
-                        {floor.name}
-                      </div>
-                      <div className="text-xs text-tremor-content-subtle">
-                        {floor.rooms.length} rooms
-                      </div>
+                      {editingFloorId === floor.id ? (
+                        <input
+                          type="text"
+                          value={editingFloorName}
+                          onChange={(e) => setEditingFloorName(e.target.value)}
+                          onKeyDown={(e) => {
+                            e.stopPropagation()
+                            if (e.key === 'Enter') saveFloorName(floor.id)
+                            if (e.key === 'Escape') cancelEditFloor()
+                          }}
+                          onBlur={() => saveFloorName(floor.id)}
+                          autoFocus
+                          className="w-full rounded-full border border-[rgba(228,60,47,0.3)] bg-white px-2 py-1 text-sm font-medium text-tremor-content-strong focus:outline-none focus:ring-2 focus:ring-[rgba(228,60,47,0.4)]"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <>
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              startEditFloor(floor.id, floor.name)
+                            }}
+                            className="cursor-text truncate text-sm font-semibold text-tremor-content-strong hover:text-[#e43c2f] transition-colors"
+                          >
+                            {floor.name}
+                          </div>
+                          <div className="text-xs text-tremor-content-subtle">
+                            {floor.rooms.length} rooms
+                          </div>
+                        </>
+                      )}
                     </div>
                   </button>
                   <div className="flex items-center gap-1">
@@ -264,7 +313,7 @@ export function RoomPlannerSidebar({
 
                 <div className="mt-3 space-y-2">
                   {floor.rooms.length === 0 ? (
-                    <div className="rounded-[18px] border border-dashed border-[rgba(109,91,81,0.14)] bg-white/35 px-3 py-2 text-sm text-tremor-content-subtle">
+                    <div className="rounded-[22px] border border-dashed border-[rgba(109,91,81,0.14)] bg-white/35 px-3 py-2 text-sm text-tremor-content-subtle">
                       No rooms yet.
                     </div>
                   ) : (
@@ -319,7 +368,7 @@ export function RoomPlannerSidebar({
                             }
                           }}
                           className={
-                            'relative w-full rounded-[18px] border px-3 py-3 text-left transition-colors cursor-move ' +
+                            'relative w-full rounded-[22px] border px-3 py-3 text-left transition-colors cursor-move ' +
                             (draggedRoomId === room.id ? 'opacity-50' : '') +
                             ' ' +
                             (isDraggingOver
@@ -399,22 +448,70 @@ export function RoomPlannerSidebar({
                               </span>
                             ) : (
                               <>
-                                {items.slice(0, 4).map((item) => (
-                                  <div key={item.id} className="flex items-center justify-between gap-1 group">
-                                    <span className="truncate">{item.label}</span>
-                                    {onRemoveItem && (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); onRemoveItem(room.id, item.id) }}
-                                        className="invisible group-hover:visible shrink-0 text-tremor-content-subtle hover:text-red-500 transition-colors leading-none"
-                                        title="Remove item"
-                                        aria-label="Remove item from room"
-                                      >
-                                        ✕
-                                      </button>
-                                    )}
-                                  </div>
-                                ))}
+                                {items.slice(0, 4).map((item) => {
+                                  const quantityKey = `${room.id}:${item.id}`
+                                  const isEditing = editingItemQuantities[quantityKey] !== undefined
+                                  const displayQuantity = isEditing ? editingItemQuantities[quantityKey] : item.quantity ? String(item.quantity) : '1'
+                                  return (
+                                    <div key={item.id} className="flex items-center justify-between gap-1 group">
+                                      <span className="truncate flex-1">{item.label}</span>
+                                      {isEditing ? (
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          value={displayQuantity}
+                                          onChange={(e) => setEditingItemQuantities((current) => ({
+                                            ...current,
+                                            [quantityKey]: e.target.value,
+                                          }))}
+                                          onBlur={() => setEditingItemQuantities((current) => {
+                                            const next = { ...current }
+                                            delete next[quantityKey]
+                                            return next
+                                          })}
+                                          onKeyDown={(e) => {
+                                            e.stopPropagation()
+                                            if (e.key === 'Enter' || e.key === 'Escape') {
+                                              setEditingItemQuantities((current) => {
+                                                const next = { ...current }
+                                                delete next[quantityKey]
+                                                return next
+                                              })
+                                            }
+                                          }}
+                                          autoFocus
+                                          className="w-12 rounded border border-[rgba(228,60,47,0.3)] bg-white px-1.5 py-0.5 text-center text-xs font-medium text-tremor-content-strong focus:outline-none focus:ring-1 focus:ring-[rgba(228,60,47,0.4)]"
+                                          onClick={(e) => e.stopPropagation()}
+                                        />
+                                      ) : (
+                                        <span
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setEditingItemQuantities((current) => ({
+                                              ...current,
+                                              [quantityKey]: displayQuantity,
+                                            }))
+                                          }}
+                                          className="shrink-0 w-6 text-center cursor-text rounded px-1 hover:bg-white/50 transition-colors"
+                                          title="Click to edit quantity"
+                                        >
+                                          {displayQuantity}
+                                        </span>
+                                      )}
+                                      {onRemoveItem && (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => { e.stopPropagation(); onRemoveItem(room.id, item.id) }}
+                                          className="invisible group-hover:visible shrink-0 text-tremor-content-subtle hover:text-red-500 transition-colors leading-none"
+                                          title="Remove item"
+                                          aria-label="Remove item from room"
+                                        >
+                                          ✕
+                                        </button>
+                                      )}
+                                    </div>
+                                  )
+                                })}
                                 {items.length > 4 ? (
                                   <div className="text-tremor-content-subtle">
                                     +{items.length - 4} more
@@ -459,7 +556,7 @@ export function RoomPlannerSidebar({
                   event.dataTransfer.setData('application/x-kidzink-item-id', item.id)
                 }}
                 onDragEnd={() => onEndItemDrag()}
-                className="group flex cursor-move items-center justify-between gap-2 rounded-[14px] border border-[rgba(109,91,81,0.12)] bg-white/70 px-3 py-2 text-xs text-tremor-content transition-colors hover:bg-white"
+                className="group flex cursor-move items-center justify-between gap-2 rounded-[22px] border border-[rgba(109,91,81,0.12)] bg-white/70 px-3 py-2 text-xs text-tremor-content transition-colors hover:bg-white"
               >
                 <span className="truncate">{item.label}</span>
                 {onRemoveFromBoq ? (
